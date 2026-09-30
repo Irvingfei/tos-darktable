@@ -206,14 +206,25 @@ jobs:
           set -o pipefail
           python3 app/tools/build.py --platform x86_64 --stage stage 2>&1 | tee package.log
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload the package
+        # The path is the directory itself, with a trailing slash, so the deb
+        # and its checksum land at the root of the artifact. Naming individual
+        # files instead makes upload-artifact preserve their path relative to
+        # the least common ancestor of everything uploaded - which, when the
+        # bundle report was in the same upload, put them under app/dist/ and
+        # broke every consumer expecting them at the top.
+        uses: actions/upload-artifact@v4
         with:
           name: package
-          path: |
-            app/dist/*.deb
-            app/dist/*.sha256
-            bundle-report.json
+          path: app/dist/
           if-no-files-found: error
+
+      - name: Upload the bundle report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-report
+          path: bundle-report.json
+          if-no-files-found: warn
 
       - name: Report the failure where it can be read
         if: failure()
@@ -302,13 +313,22 @@ jobs:
       - name: Install and run the package
         run: |
           set -o pipefail
-          ls -la artifacts
-          bash app/ci/verify-package.sh "$(ls artifacts/*.deb | head -1)" 2>&1 | tee verify.log
+          # Located rather than assumed: where a downloaded artifact puts its
+          # files depends on how it was uploaded, and getting that wrong once
+          # already cost a run.
+          DEB="$(find artifacts -name '*.deb' | head -1)"
+          if [ -z "$DEB" ]; then
+            echo "no .deb found in the downloaded artifact:" >&2
+            find artifacts -maxdepth 3 -print >&2
+            exit 1
+          fi
+          echo "installing $DEB"
+          bash app/ci/verify-package.sh "$DEB" 2>&1 | tee verify.log
 
       - name: Verify the declared checksum
         run: |
           set -eux
-          cd artifacts
+          cd "$(dirname "$(find artifacts -name '*.deb' | head -1)")"
           sha256sum -c *.sha256
 
       - name: Report the failure where it can be read
