@@ -123,6 +123,12 @@ echo "  $count file(s) checked, no unresolved library"
 # whether the copy is incomplete or the path is wrong.
 XKB_DIR="$ROOT/depends/share/X11/xkb"
 echo "  xkb tree: $(find "$XKB_DIR" -maxdepth 1 -type d 2>/dev/null | wc -l) top-level entries, $(find "$XKB_DIR" -type f 2>/dev/null | wc -l) files"
+# Per subtree, because the total alone cannot say whether a copy is complete or
+# merely smaller than expected. xkb-data on jammy carries roughly a thousand
+# files, mostly under symbols/.
+for sub in compat geometry keycodes rules symbols types; do
+    echo "    $sub: $(find "$XKB_DIR/$sub" -type f 2>/dev/null | wc -l) files"
+done
 echo "  keycodes/evdev: $(ls -la "$XKB_DIR/keycodes/evdev" 2>&1)"
 
 # --------------------------------------------------------------------------- #

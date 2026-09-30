@@ -150,6 +150,7 @@ never written.
 | `/tmp/.X11-unix/X<n>` | The X display socket | Unix socket | On start | One socket | Removed on stop and on purge |
 | `/var/lib/xkb/` | Where the X server writes the keymap it compiles at startup. Owned by the application account, because the X server runs as that account. Recreated on every start, since `/var` on TOS is a symlink into `/tmp` and the directory would otherwise be missing after a reboot. | Directory | On start | One compiled keymap | Left in place; removed with the directory's contents by the system's own `/tmp` cleanup |
 | `/usr/bin/xkbcomp` | A symlink to the compiler shipped in `depends/bin/`, created only when nothing already occupies that path. See the note below. | Symlink | On start, if absent | One link | Removed on purge, and only while it still points at this application's copy |
+| `/usr/share/X11/xkb` | A symlink to the keymap data shipped in `depends/share/`, created only when nothing already occupies that path. See the note below. | Symlink | On start, if absent | One link | Removed on purge, and only while it still points at this application's copy |
 | `etc/fonts/fonts.conf` | Generated font configuration | XML | On start | Under 1 KB | Rewritten on every start |
 
 **On `/tmp`:** the application writes no temporary files to the shared system

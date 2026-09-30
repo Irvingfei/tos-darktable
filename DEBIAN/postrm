@@ -43,6 +43,17 @@ if [ "$1" = "purge" ]; then
         esac
     fi
 
+    # The keymap data link, on the same terms.
+    if [ -L /usr/share/X11/xkb ]; then
+        CURRENT="$(readlink /usr/share/X11/xkb 2>/dev/null || true)"
+        case "$CURRENT" in
+            "$ROOT/depends/share/X11/xkb"|"$REAL_ROOT/depends/share/X11/xkb")
+                rm -f /usr/share/X11/xkb 2>/dev/null || true
+                rmdir /usr/share/X11 2>/dev/null || true
+                ;;
+        esac
+    fi
+
     # The published copy of the frontend. Only removed when the link still
     # points at this application's own webui directory: an operator may have
     # repointed it, and deleting the target of a link we do not own would

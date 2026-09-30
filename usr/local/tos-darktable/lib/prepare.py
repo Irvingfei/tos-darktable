@@ -267,6 +267,18 @@ def ensure_share(config, uid, gid):
 XKBCOMP_PATH = "/usr/bin/xkbcomp"
 XKB_OUTPUT_DIR = "/var/lib/xkb"
 
+# The X server accepts -xkbdir and the launcher passes it, but that changes
+# where the *server* looks for the rules it feeds to the compiler - it does not
+# become the compiler's include path. Measured, not assumed: with -xkbdir
+# pointing at a directory that demonstrably contains keycodes/evdev, xkbcomp
+# still reported "Can't find file \"evdev\" for keycodes include" and looked in
+# its own compiled-in default instead.
+#
+# So the data is offered at that default as well. Nothing is overwritten: the
+# link is created only when nothing already occupies the path, so a system that
+# ships its own keymap data keeps it.
+XKB_DATA_PATH = "/usr/share/X11/xkb"
+
 
 def ensure_xkb_support(config, uid, gid):
     """Give the bundled X server the two system paths it hard-codes."""
@@ -296,18 +308,38 @@ def ensure_xkb_support(config, uid, gid):
 
     if os.path.exists(XKBCOMP_PATH) or os.path.islink(XKBCOMP_PATH):
         log.info("%s already exists; leaving it alone", XKBCOMP_PATH)
+    else:
+        try:
+            os.symlink(bundled, XKBCOMP_PATH)
+            log.info("linked %s -> %s for the X server", XKBCOMP_PATH, bundled)
+        except OSError as error:
+            # Not fatal here, but the X server will fail on its next start, so
+            # say so plainly rather than letting it surface as a display error.
+            log.error(
+                "cannot create %s (%s). The X server will not start without "
+                "it; the root filesystem may be read-only.",
+                XKBCOMP_PATH,
+                error,
+            )
+
+    # And the keymap data at the path the compiler actually reads.
+    bundled_data = config.xkb_dir
+    if not os.path.isdir(bundled_data):
+        log.warning("%s is missing from the bundle; the X server will not start", bundled_data)
+        return
+
+    if os.path.exists(XKB_DATA_PATH) or os.path.islink(XKB_DATA_PATH):
+        log.info("%s already exists; leaving it alone", XKB_DATA_PATH)
         return
 
     try:
-        os.symlink(bundled, XKBCOMP_PATH)
-        log.info("linked %s -> %s for the X server", XKBCOMP_PATH, bundled)
+        os.makedirs(os.path.dirname(XKB_DATA_PATH), exist_ok=True)
+        os.symlink(bundled_data, XKB_DATA_PATH)
+        log.info("linked %s -> %s for the keymap compiler", XKB_DATA_PATH, bundled_data)
     except OSError as error:
-        # Not fatal here, but the X server will fail on its next start, so say
-        # so plainly rather than letting it surface as a display error.
         log.error(
-            "cannot create %s (%s). The X server will not start without it; "
-            "the root filesystem may be read-only.",
-            XKBCOMP_PATH,
+            "cannot create %s (%s). The X server will not start without it.",
+            XKB_DATA_PATH,
             error,
         )
 
