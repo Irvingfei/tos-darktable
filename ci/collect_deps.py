@@ -89,19 +89,18 @@ EXCLUDE_COMPILER_RUNTIME = {
     "libstdc++.so.6",
 }
 
-# Never bundle a GL implementation. It is host- and driver-specific, and its
-# absence is the desired outcome: with no GLX available, GTK's X11 backend
-# falls back to cairo software rendering, which is the only path that works on
-# a NAS with no GPU driver.
-EXCLUDE_GL = {
-    "libGL.so.1",
-    "libGLX.so.0",
-    "libEGL.so.1",
-    "libGLdispatch.so.0",
-    "libOpenGL.so.0",
-    "libGLX_mesa.so.0",
-    "libEGL_mesa.so.0",
-}
+# GL is deliberately NOT excluded, and that is a correction.
+#
+# An earlier version of this file excluded libGL.so.1 and its relatives on the
+# reasoning that a NAS has no GPU driver and that GL's absence is what makes
+# GTK fall back to cairo software rendering. The verify job showed what that
+# missed: **Xvfb itself hard-links libGL.so.1** for its GLX extension. Something
+# that is linked rather than dlopen'd cannot be absent - without it the X
+# server does not load at all, and the whole display stack goes with it.
+#
+# Bundling a generic libGL is safe: the closure follows DT_NEEDED only, so the
+# driver-specific part - the DRI drivers under /usr/lib/<triplet>/dri - is
+# dlopen'd and never collected. A generic libGL is portable; a driver is not.
 
 # The glibc the device provides. Anything needing newer cannot run there, and
 # the failure on the device would be "version GLIBC_2.38 not found" with no
@@ -429,7 +428,7 @@ def seeds(depends, stage_app):
 
 def closure(depends, stage_app, bundle_compiler_runtime, report, sources):
     """Copy the transitive non-system shared libraries into depends/lib."""
-    exclude = set(EXCLUDE_ALWAYS) | set(EXCLUDE_GL)
+    exclude = set(EXCLUDE_ALWAYS)
     if not bundle_compiler_runtime:
         exclude |= EXCLUDE_COMPILER_RUNTIME
 
