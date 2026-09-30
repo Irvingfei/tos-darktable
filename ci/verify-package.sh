@@ -19,16 +19,19 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 APPID="tos-darktable"
 PREFIX="/usr/local/$APPID"
-# Unpacked somewhere world-traversable, not under /root.
+# Unpacked at the path it will actually occupy.
 #
-# /root is mode 0700, so an application account cannot traverse into anything
-# beneath it. The package's own directory was fine - ownership and modes were
-# correct - but the preparation step's check that the account can reach data/
-# failed, correctly, because the account could not get past /root to reach it
-# at all. On a device the package lives under /usr/local, whose ancestors are
-# traversable, so this was a property of the harness rather than the package.
-EXTRACT="/opt/tos-verify"
-ROOT="$EXTRACT$PREFIX"
+# Extracting somewhere else first - /root/out, then /opt/tos-verify - meant the
+# package's own directory and its configured paths disagreed, because
+# tos-darktable.env names absolute locations: the launcher read its logs from
+# /usr/local/tos-darktable/logs while the tree was elsewhere, and the password
+# it wanted to read was not the one this script had written. Every one of those
+# was a property of the harness rather than the package.
+#
+# Extracting to / removes the whole class of problem, and it is what a device
+# looks like anyway.
+EXTRACT="/"
+ROOT="$PREFIX"
 PORT=9312
 PASSWORD="verification-$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
@@ -52,20 +55,12 @@ trap cleanup EXIT
 dump_logs() {
     echo "--- launcher log ---"
     cat /tmp/launcher.log 2>/dev/null || echo "(absent)"
-    # Two locations, because they differ. The package's own log_dir default is
-    # relative to where it was unpacked; the one in tos-darktable.env is the
-    # absolute path the service uses on a device. In this container those are
-    # /opt/tos-verify/usr/local/... and /usr/local/... respectively, so a dump
-    # that checked only one of them found nothing and hid the reason for a
-    # failure.
-    for base in "$ROOT" "/usr/local/$APPID"; do
-        for name in xvfb x11vnc darktable launcher; do
-            if [ -f "$base/logs/$name.log" ]; then
-                echo "--- $base/logs/$name.log ---"
-                cat "$base/logs/$name.log"
-                echo
-            fi
-        done
+    for name in xvfb x11vnc darktable launcher; do
+        if [ -f "$ROOT/logs/$name.log" ]; then
+            echo "--- $ROOT/logs/$name.log ---"
+            cat "$ROOT/logs/$name.log"
+            echo
+        fi
     done
 }
 
