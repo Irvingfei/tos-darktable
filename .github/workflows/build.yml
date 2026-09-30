@@ -12,17 +12,28 @@ name: build
 #   release   seconds   on tags: publishes the package and its SHA-256, which
 #                       the TOS developer platform requires for every binary.
 #
-# Two things about this file are worth knowing before editing it.
+# Three things about this file are worth knowing before editing it, all of them
+# learned by getting them wrong.
 #
-# Shell steps call scripts through `bash <path>` rather than executing them.
-# The repository is maintained from Windows, which cannot record a POSIX
-# execute bit, so a direct invocation of a committed script dies with
-# "Permission denied" in zero seconds. The bit is set in the index, but this
-# survives a checkout that lost it.
+# **Container steps use relative paths, never `${{ github.workspace }}`.** In a
+# container job that expression expands to the *host* path
+# (/home/runner/work/<repo>/<repo>); the same directory is mounted inside the
+# container at /__w/<repo>/<repo>. A redirect or a tee to the host path fails
+# with "No such file or directory", and with `pipefail` that failure becomes
+# the step's exit status. A step's working directory is the workspace in both
+# cases, so a relative path is correct everywhere.
 #
-# Failures are reported as commit comments, because the Actions log endpoint
-# requires repository admin rights even on a public repository, so nothing can
-# be read without a token. Commit comments are readable anonymously.
+# **Container steps name bash explicitly.** A container job's default shell is
+# sh, which on Ubuntu is dash, and dash rejects `set -o pipefail` with
+# "Illegal option" - the step then dies in zero seconds having produced
+# nothing at all.
+#
+# **Scripts are invoked through `bash <path>`.** The repository is maintained
+# from Windows, which cannot record a POSIX execute bit, so a direct invocation
+# of a committed script dies with "Permission denied" in zero seconds.
+#
+# Failures are also reported as commit comments, because reading them here
+# requires a token and the point is to be able to diagnose without one.
 
 on:
   push:
@@ -32,7 +43,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Override the version in config.ini (e.g. 1.0.6)"
+        description: "Override the version in config.ini (e.g. 1.0.9)"
         required: false
         type: string
       skip_build:
@@ -129,11 +140,6 @@ jobs:
       image: ubuntu:22.04
       options: --user root
 
-    # A container job's default shell is sh, which on Ubuntu is dash. Several
-    # steps here start with `set -o pipefail`, and dash rejects it with
-    # "Illegal option" - the step then dies in zero seconds with no output at
-    # all, because the file it was redirecting into never gets created. Naming
-    # bash explicitly is what makes those steps run.
     defaults:
       run:
         shell: bash
@@ -146,13 +152,13 @@ jobs:
       - name: Install build dependencies
         run: |
           set -o pipefail
-          bash app/ci/install-build-deps.sh 2>&1 | tee "${{ github.workspace }}/apt.log"
+          bash app/ci/install-build-deps.sh 2>&1 | tee apt.log
 
       - uses: actions/cache@v4
         with:
           path: |
             /root/.ccache
-            ${{ github.workspace }}/build
+            build
           key: dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_SHA }}-${{ hashFiles('app/ci/build-darktable.sh', 'app/ci/install-build-deps.sh') }}
           restore-keys: |
             dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_SHA }}-
@@ -160,33 +166,34 @@ jobs:
       - name: Build darktable
         env:
           CCACHE_DIR: /root/.ccache
-          SRC_DIR: ${{ github.workspace }}/src
-          BUILD_DIR: ${{ github.workspace }}/build
-          STAGE: ${{ github.workspace }}/stage
+          # Relative on purpose; see the note at the top of this file.
+          SRC_DIR: src
+          BUILD_DIR: build
+          STAGE: stage
           DARKTABLE_VERSION: ${{ env.DT_VERSION }}
           DARKTABLE_SHA: ${{ env.DARKTABLE_SHA }}
         run: |
           set -o pipefail
-          bash app/ci/build-darktable.sh 2>&1 | tee "${{ github.workspace }}/build.log"
+          bash app/ci/build-darktable.sh 2>&1 | tee build.log
 
       - name: Collect the runtime dependency bundle
         run: |
           set -o pipefail
           python3 app/ci/collect_deps.py \
-            --stage "${{ github.workspace }}/stage" \
-            --report "${{ github.workspace }}/bundle-report.json" \
-            2>&1 | tee "${{ github.workspace }}/collect.log"
+            --stage stage \
+            --report bundle-report.json \
+            2>&1 | tee collect.log
 
-      - name: Show bundle size
+      - name: Show what was built
         run: |
-          du -sh "${{ github.workspace }}/stage/usr/local/tos-darktable/"* || true
+          du -sh stage/usr/local/tos-darktable/* || true
+          ls -la stage/usr/local/tos-darktable/app/bin || true
+          ls -la stage/usr/local/tos-darktable/depends/bin || true
 
       - name: Assemble the package
         run: |
           set -o pipefail
-          python3 app/tools/build.py --platform x86_64 \
-            --stage "${{ github.workspace }}/stage" \
-            2>&1 | tee "${{ github.workspace }}/package.log"
+          python3 app/tools/build.py --platform x86_64 --stage stage 2>&1 | tee package.log
 
       - uses: actions/upload-artifact@v4
         with:
@@ -204,7 +211,19 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const workspace = process.env.GITHUB_WORKSPACE;
+
+            // The workspace sits at a different path inside the container than
+            // the one github.workspace names, so both are tried and the working
+            // directory is the fallback that always resolves.
+            const roots = [process.env.GITHUB_WORKSPACE, process.cwd()].filter(Boolean);
+
+            const find = (name) => {
+              for (const root of roots) {
+                const file = path.join(root, name);
+                if (fs.existsSync(file)) return file;
+              }
+              return null;
+            };
 
             let body = `Automated failure report for run ${context.runId}.\n\n`;
             body += 'The Actions log endpoint requires repository admin rights, so\n';
@@ -212,8 +231,8 @@ jobs:
 
             let found = false;
             for (const name of ['apt.log', 'cmake-configure.log', 'build.log', 'collect.log', 'package.log']) {
-              const file = path.join(workspace, name);
-              if (!fs.existsSync(file)) continue;
+              const file = find(name);
+              if (!file) continue;
               found = true;
               const lines = fs.readFileSync(file, 'utf8').split('\n');
               body += `### ${name} — last 150 lines\n\`\`\`\n`;
@@ -273,8 +292,7 @@ jobs:
         run: |
           set -o pipefail
           ls -la artifacts
-          bash app/ci/verify-package.sh "$(ls artifacts/*.deb | head -1)" \
-            2>&1 | tee "${{ github.workspace }}/verify.log"
+          bash app/ci/verify-package.sh "$(ls artifacts/*.deb | head -1)" 2>&1 | tee verify.log
 
       - name: Verify the declared checksum
         run: |
@@ -289,11 +307,16 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const workspace = process.env.GITHUB_WORKSPACE;
+            const roots = [process.env.GITHUB_WORKSPACE, process.cwd()].filter(Boolean);
 
             let body = `Automated failure report for run ${context.runId} (verify job).\n\n`;
-            const file = path.join(workspace, 'verify.log');
-            if (fs.existsSync(file)) {
+            let file = null;
+            for (const root of roots) {
+              const candidate = path.join(root, 'verify.log');
+              if (fs.existsSync(candidate)) { file = candidate; break; }
+            }
+
+            if (file) {
               const lines = fs.readFileSync(file, 'utf8').split('\n');
               body += '### verify.log — last 200 lines\n```\n';
               body += lines.slice(-200).join('\n');
