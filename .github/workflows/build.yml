@@ -1,18 +1,28 @@
 name: build
 
-# Three jobs, deliberately ordered by cost:
+# Four jobs, ordered by cost:
 #
-#   metadata  seconds   validates the package contract, runs the launcher's
-#                       self-test, and builds a metadata-only package. Catches
-#                       the great majority of submission problems without
-#                       compiling anything.
+#   metadata  seconds   the package contract, the launcher self-test, and a
+#                       metadata-only package. Catches most submission problems
+#                       without compiling anything.
 #   build     30-55 min compiles darktable and collects the runtime closure.
 #   verify    minutes   installs the package into a bare ubuntu:22.04 and runs
-#                       it end to end. This is the only check that proves the
-#                       bundled runtime is complete.
+#                       it end to end. The only check that proves the bundled
+#                       runtime is complete.
+#   release   seconds   on tags: publishes the package and its SHA-256, which
+#                       the TOS developer platform requires for every binary.
 #
-# The release job runs on tags and publishes the package plus its SHA-256,
-# which the TOS developer platform requires for every binary artifact.
+# Two things about this file are worth knowing before editing it.
+#
+# Shell steps call scripts through `bash <path>` rather than executing them.
+# The repository is maintained from Windows, which cannot record a POSIX
+# execute bit, so a direct invocation of a committed script dies with
+# "Permission denied" in zero seconds. The bit is set in the index, but this
+# survives a checkout that lost it.
+#
+# Failures are reported as commit comments, because the Actions log endpoint
+# requires repository admin rights even on a public repository, so nothing can
+# be read without a token. Commit comments are readable anonymously.
 
 on:
   push:
@@ -22,7 +32,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Override the version in config.ini (e.g. 1.0.1)"
+        description: "Override the version in config.ini (e.g. 1.0.6)"
         required: false
         type: string
       skip_build:
@@ -39,7 +49,7 @@ env:
   DT_VERSION: "5.6.1"
   # The commit release-5.6.1 points at. Pinned so that a re-tag upstream turns
   # into a build failure naming the cause, instead of a package that quietly
-  # ships different code than the release notes describe.
+  # ships different code than its release notes describe.
   DARKTABLE_SHA: "03179f8e080aa9cedebfe14b098b7ba88940a292"
 
 jobs:
@@ -64,8 +74,8 @@ jobs:
         run: python3 tools/validate.py
 
       - name: Assemble a metadata-only package
-        # No --stage: this exercises the metadata, lifecycle scripts and webui
-        # packing without waiting for darktable to build.
+        # No --stage: this exercises the metadata, the lifecycle scripts and
+        # the webui packing without waiting for darktable to build.
         run: python3 tools/build.py --platform x86_64
 
       - name: Inspect the package structure
@@ -81,28 +91,28 @@ jobs:
 
       - name: Report the failure where it can be read
         if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -uo pipefail
-          body=/tmp/failure-report.md
-          {
-            echo "Automated failure report for run ${GITHUB_RUN_ID} (metadata job)."
-            echo
-            echo "The Actions log endpoint requires repository admin rights, so this"
-            echo "is posted as a commit comment instead. Re-run the failing commands"
-            echo "locally to see the detail:"
-            echo
-            echo '```'
-            echo "python3 tools/bump_version.py --check"
-            echo "python3 tools/selftest.py -v"
-            echo "python3 tools/validate.py"
-            echo "python3 tools/build.py --platform x86_64"
-            echo "python3 tools/inspect_deb.py"
-            echo '```'
-          } > "$body"
-          gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-            -F body=@"$body" || true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: [
+                `Automated failure report for run ${context.runId} (metadata job).`,
+                '',
+                'The Actions log endpoint requires repository admin rights, so this',
+                'is posted as a commit comment instead. Reproduce locally with:',
+                '',
+                '```',
+                'python3 tools/bump_version.py --check',
+                'python3 tools/selftest.py -v',
+                'python3 tools/validate.py',
+                'python3 tools/build.py --platform x86_64',
+                'python3 tools/inspect_deb.py',
+                '```',
+              ].join('\n'),
+            });
 
   # ------------------------------------------------------------------------- #
   build:
@@ -126,58 +136,15 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          # Everything is copied to a file so the failure report below can quote
-          # it. The runner's own log is not readable without repository admin
-          # rights, even on a public repository.
-          exec > >(tee -a "${{ github.workspace }}/apt.log") 2>&1
-          set -eux
-          export DEBIAN_FRONTEND=noninteractive
-          printf 'Acquire::Retries "10";\n' > /etc/apt/apt.conf.d/80retry
-          printf 'APT::Install-Recommends "false";\n' > /etc/apt/apt.conf.d/80recommends
-          apt-get update
-
-          # Required. The build fails outright without any of these.
-          #
-          # Taken from the find_package(... REQUIRED) calls in darktable's own
-          # CMakeLists rather than from its documentation, because that is what
-          # actually decides whether the configure step succeeds. libpugixml-dev
-          # is the one that is easy to miss: it appears nowhere in the published
-          # dependency list, and its absence aborts the build about ninety
-          # seconds in.
-          apt-get install -y --no-install-recommends \
-            build-essential gcc-11 g++-11 cmake ninja-build pkg-config \
-            git ca-certificates gettext libxml2-utils \
-            python3 python3-minimal dpkg-dev binutils file \
-            bzip2 xz-utils ccache patchelf \
-            libglib2.0-dev libgtk-3-dev libxml2-dev libpotrace-dev \
-            liblensfun-dev libsqlite3-dev libpango1.0-dev librsvg2-dev \
-            libpng-dev libjpeg-dev libtiff-dev liblcms2-dev \
-            libjson-glib-dev libcurl4-openssl-dev libexiv2-dev \
-            libpugixml-dev libimath-dev zlib1g-dev libgdk-pixbuf-2.0-dev
-
-          # Optional formats. Installed one at a time and tolerated when
-          # absent: darktable's find_package calls for these are guarded by
-          # if(X_FOUND), so a missing one costs that format and nothing else.
-          # A single failing name in a combined install would abort the whole
-          # step, which is exactly how a build breaks for no real reason.
-          for package in libjxl-dev libavif-dev libheif-dev libwebp-dev \
-                         libopenjp2-7-dev libgraphicsmagick1-dev; do
-            apt-get install -y --no-install-recommends "$package" \
-              || echo "optional dependency $package is unavailable; skipping"
-          done
-
-          # Sources for the runtime payload. These are copied into the bundle
-          # by ci/collect_deps.py; the package never depends on them.
-          apt-get install -y --no-install-recommends \
-            xvfb x11vnc xauth x11-xkb-utils xkb-data fonts-dejavu-core \
-            libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin
+          set -o pipefail
+          bash app/ci/install-build-deps.sh 2>&1 | tee "${{ github.workspace }}/apt.log"
 
       - uses: actions/cache@v4
         with:
           path: |
             /root/.ccache
             ${{ github.workspace }}/build
-          key: dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_SHA }}-${{ hashFiles('app/ci/build-darktable.sh') }}
+          key: dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_SHA }}-${{ hashFiles('app/ci/build-darktable.sh', 'app/ci/install-build-deps.sh') }}
           restore-keys: |
             dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_SHA }}-
 
@@ -191,12 +158,6 @@ jobs:
           DARKTABLE_SHA: ${{ env.DARKTABLE_SHA }}
         run: |
           set -o pipefail
-          # Invoked through bash rather than executed directly. The repository
-          # is maintained from Windows, which cannot record a POSIX execute
-          # bit, so a checkout there commits these scripts as 100644 and a
-          # direct invocation dies with "Permission denied" in zero seconds.
-          # The bit is set correctly in the index now; this makes the workflow
-          # work even for a clone that lost it.
           bash app/ci/build-darktable.sh 2>&1 | tee "${{ github.workspace }}/build.log"
 
       - name: Collect the runtime dependency bundle
@@ -228,49 +189,41 @@ jobs:
           if-no-files-found: error
 
       - name: Report the failure where it can be read
-        # The Actions log endpoint requires repository admin rights, so a
-        # failure out here is invisible to anyone without a token. Commit
-        # comments are readable without one, which makes this the difference
-        # between a diagnosable failure and a 40-minute guess.
         if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WORKSPACE: ${{ github.workspace }}
-        run: |
-          set -uo pipefail
-          body=/tmp/failure-report.md
-          {
-            echo "Automated failure report for run ${GITHUB_RUN_ID}."
-            echo
-            echo '```'
-            echo "The GitHub log endpoint needs repository admin rights, so the"
-            echo "diagnostics below are posted here instead."
-            echo '```'
-            echo
-          } > "$body"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const workspace = process.env.GITHUB_WORKSPACE;
 
-          found=0
-          for name in apt.log cmake-configure.log build.log collect.log package.log; do
-            [ -f "$WORKSPACE/$name" ] || continue
-            found=1
-            {
-              echo "### ${name} — last 120 lines"
-              echo '```'
-              tail -120 "$WORKSPACE/$name"
-              echo '```'
-              echo
-            } >> "$body"
-          done
+            let body = `Automated failure report for run ${context.runId}.\n\n`;
+            body += 'The Actions log endpoint requires repository admin rights, so\n';
+            body += 'the diagnostics below are posted here instead.\n\n';
 
-          if [ "$found" = "0" ]; then
-            echo "No captured output exists, so the failure happened in a step" >> "$body"
-            echo "that writes only to the runner log. The step conclusions in the" >> "$body"
-            echo "run summary identify which one." >> "$body"
-          fi
+            let found = false;
+            for (const name of ['apt.log', 'cmake-configure.log', 'build.log', 'collect.log', 'package.log']) {
+              const file = path.join(workspace, name);
+              if (!fs.existsSync(file)) continue;
+              found = true;
+              const lines = fs.readFileSync(file, 'utf8').split('\n');
+              body += `### ${name} — last 150 lines\n\`\`\`\n`;
+              body += lines.slice(-150).join('\n');
+              body += '\n```\n\n';
+            }
 
-          head -c 60000 "$body" > "${body}.trimmed"
-          gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
-            -F body=@"${body}.trimmed" || true
+            if (!found) {
+              body += 'No captured output existed, so the failure happened in a step\n';
+              body += 'that writes only to the runner log. The step conclusions in the\n';
+              body += 'run summary identify which one.\n';
+            }
+
+            await github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: body.slice(0, 60000),
+            });
 
   # ------------------------------------------------------------------------- #
   verify:
@@ -305,16 +258,44 @@ jobs:
 
       - name: Install and run the package
         run: |
-          set -eux
+          set -o pipefail
           ls -la artifacts
-          chmod +x app/ci/verify-package.sh app/ci/verify_ws.py
-          bash app/ci/verify-package.sh "$(ls artifacts/*.deb | head -1)"
+          bash app/ci/verify-package.sh "$(ls artifacts/*.deb | head -1)" \
+            2>&1 | tee "${{ github.workspace }}/verify.log"
 
       - name: Verify the declared checksum
         run: |
           set -eux
           cd artifacts
           sha256sum -c *.sha256
+
+      - name: Report the failure where it can be read
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const workspace = process.env.GITHUB_WORKSPACE;
+
+            let body = `Automated failure report for run ${context.runId} (verify job).\n\n`;
+            const file = path.join(workspace, 'verify.log');
+            if (fs.existsSync(file)) {
+              const lines = fs.readFileSync(file, 'utf8').split('\n');
+              body += '### verify.log — last 200 lines\n```\n';
+              body += lines.slice(-200).join('\n');
+              body += '\n```\n';
+            } else {
+              body += 'verify.log was not created, so the package could not be unpacked\n';
+              body += 'or the script did not start.\n';
+            }
+
+            await github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: body.slice(0, 60000),
+            });
 
   # ------------------------------------------------------------------------- #
   release:
@@ -336,8 +317,8 @@ jobs:
           body: |
             darktable ${{ env.DT_VERSION }} packaged for TOS 7.
 
-            Install from the TOS App Center, or download the assets below.
-            The `.sha256` file is required by the developer platform and can be
+            Install from the TOS App Center, or download the assets below. The
+            `.sha256` file is required by the developer platform and can be
             checked with `sha256sum -c tos-darktable_x86_64.deb.sha256`.
 
             Read the access password after installing with:
