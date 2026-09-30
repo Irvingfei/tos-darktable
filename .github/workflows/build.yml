@@ -159,7 +159,14 @@ jobs:
           path: |
             /root/.ccache
             build
-          key: dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_SHA }}-${{ hashFiles('app/ci/build-darktable.sh', 'app/ci/install-build-deps.sh') }}
+          # Keyed on the darktable version and the build script, deliberately
+          # not on ci/install-build-deps.sh. Adding a build tool does not
+          # invalidate compiled objects, and including it here meant every
+          # dependency fix threw away the whole ccache - turning each iteration
+          # into a forty-minute rebuild instead of an eight-minute one. The
+          # cases that genuinely require recompiling, such as changing the
+          # compiler, are already part of ccache's own hash.
+          key: dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_SHA }}-${{ hashFiles('app/ci/build-darktable.sh') }}
           restore-keys: |
             dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_SHA }}-
 
