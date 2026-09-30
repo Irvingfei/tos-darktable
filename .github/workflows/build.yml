@@ -79,6 +79,31 @@ jobs:
             dist/*.sha256
           if-no-files-found: error
 
+      - name: Report the failure where it can be read
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          body=/tmp/failure-report.md
+          {
+            echo "Automated failure report for run ${GITHUB_RUN_ID} (metadata job)."
+            echo
+            echo "The Actions log endpoint requires repository admin rights, so this"
+            echo "is posted as a commit comment instead. Re-run the failing commands"
+            echo "locally to see the detail:"
+            echo
+            echo '```'
+            echo "python3 tools/bump_version.py --check"
+            echo "python3 tools/selftest.py -v"
+            echo "python3 tools/validate.py"
+            echo "python3 tools/build.py --platform x86_64"
+            echo "python3 tools/inspect_deb.py"
+            echo '```'
+          } > "$body"
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@"$body" || true
+
   # ------------------------------------------------------------------------- #
   build:
     needs: metadata
@@ -101,6 +126,10 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          # Everything is copied to a file so the failure report below can quote
+          # it. The runner's own log is not readable without repository admin
+          # rights, even on a public repository.
+          exec > >(tee -a "${{ github.workspace }}/apt.log") 2>&1
           set -eux
           export DEBIAN_FRONTEND=noninteractive
           printf 'Acquire::Retries "10";\n' > /etc/apt/apt.conf.d/80retry
@@ -108,6 +137,13 @@ jobs:
           apt-get update
 
           # Required. The build fails outright without any of these.
+          #
+          # Taken from the find_package(... REQUIRED) calls in darktable's own
+          # CMakeLists rather than from its documentation, because that is what
+          # actually decides whether the configure step succeeds. libpugixml-dev
+          # is the one that is easy to miss: it appears nowhere in the published
+          # dependency list, and its absence aborts the build about ninety
+          # seconds in.
           apt-get install -y --no-install-recommends \
             build-essential gcc-11 g++-11 cmake ninja-build pkg-config \
             git ca-certificates gettext libxml2-utils \
@@ -117,7 +153,7 @@ jobs:
             liblensfun-dev libsqlite3-dev libpango1.0-dev librsvg2-dev \
             libpng-dev libjpeg-dev libtiff-dev liblcms2-dev \
             libjson-glib-dev libcurl4-openssl-dev libexiv2-dev \
-            libimath-dev zlib1g-dev libgdk-pixbuf-2.0-dev
+            libpugixml-dev libimath-dev zlib1g-dev libgdk-pixbuf-2.0-dev
 
           # Optional formats. Installed one at a time and tolerated when
           # absent: darktable's find_package calls for these are guarded by
@@ -153,13 +189,23 @@ jobs:
           STAGE: ${{ github.workspace }}/stage
           DARKTABLE_VERSION: ${{ env.DT_VERSION }}
           DARKTABLE_SHA: ${{ env.DARKTABLE_SHA }}
-        run: app/ci/build-darktable.sh
+        run: |
+          set -o pipefail
+          # Invoked through bash rather than executed directly. The repository
+          # is maintained from Windows, which cannot record a POSIX execute
+          # bit, so a checkout there commits these scripts as 100644 and a
+          # direct invocation dies with "Permission denied" in zero seconds.
+          # The bit is set correctly in the index now; this makes the workflow
+          # work even for a clone that lost it.
+          bash app/ci/build-darktable.sh 2>&1 | tee "${{ github.workspace }}/build.log"
 
       - name: Collect the runtime dependency bundle
         run: |
+          set -o pipefail
           python3 app/ci/collect_deps.py \
             --stage "${{ github.workspace }}/stage" \
-            --report "${{ github.workspace }}/bundle-report.json"
+            --report "${{ github.workspace }}/bundle-report.json" \
+            2>&1 | tee "${{ github.workspace }}/collect.log"
 
       - name: Show bundle size
         run: |
@@ -167,8 +213,10 @@ jobs:
 
       - name: Assemble the package
         run: |
+          set -o pipefail
           python3 app/tools/build.py --platform x86_64 \
-            --stage "${{ github.workspace }}/stage"
+            --stage "${{ github.workspace }}/stage" \
+            2>&1 | tee "${{ github.workspace }}/package.log"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -178,6 +226,51 @@ jobs:
             app/dist/*.sha256
             bundle-report.json
           if-no-files-found: error
+
+      - name: Report the failure where it can be read
+        # The Actions log endpoint requires repository admin rights, so a
+        # failure out here is invisible to anyone without a token. Commit
+        # comments are readable without one, which makes this the difference
+        # between a diagnosable failure and a 40-minute guess.
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          set -uo pipefail
+          body=/tmp/failure-report.md
+          {
+            echo "Automated failure report for run ${GITHUB_RUN_ID}."
+            echo
+            echo '```'
+            echo "The GitHub log endpoint needs repository admin rights, so the"
+            echo "diagnostics below are posted here instead."
+            echo '```'
+            echo
+          } > "$body"
+
+          found=0
+          for name in apt.log cmake-configure.log build.log collect.log package.log; do
+            [ -f "$WORKSPACE/$name" ] || continue
+            found=1
+            {
+              echo "### ${name} — last 120 lines"
+              echo '```'
+              tail -120 "$WORKSPACE/$name"
+              echo '```'
+              echo
+            } >> "$body"
+          done
+
+          if [ "$found" = "0" ]; then
+            echo "No captured output exists, so the failure happened in a step" >> "$body"
+            echo "that writes only to the runner log. The step conclusions in the" >> "$body"
+            echo "run summary identify which one." >> "$body"
+          fi
+
+          head -c 60000 "$body" > "${body}.trimmed"
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            -F body=@"${body}.trimmed" || true
 
   # ------------------------------------------------------------------------- #
   verify:
@@ -215,7 +308,7 @@ jobs:
           set -eux
           ls -la artifacts
           chmod +x app/ci/verify-package.sh app/ci/verify_ws.py
-          app/ci/verify-package.sh "$(ls artifacts/*.deb | head -1)"
+          bash app/ci/verify-package.sh "$(ls artifacts/*.deb | head -1)"
 
       - name: Verify the declared checksum
         run: |
