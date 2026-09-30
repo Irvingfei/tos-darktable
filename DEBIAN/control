@@ -1,5 +1,5 @@
 Package: tos-darktable
-Version: 1.0.30
+Version: 1.0.31
 Architecture: amd64
 Section: graphics
 Priority: optional

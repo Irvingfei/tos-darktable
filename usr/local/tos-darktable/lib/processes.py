@@ -79,6 +79,37 @@ def _pid_belongs_to_us(pid, start_time, root):
     return root in _proc_cmdline(pid)
 
 
+def _proc_state(pid):
+    """Return the single-letter state from /proc/<pid>/stat, or None."""
+    try:
+        with open("/proc/%d/stat" % pid, "r", encoding="utf-8", errors="replace") as handle:
+            data = handle.read()
+    except OSError:
+        return None
+    close = data.rfind(")")
+    if close < 0:
+        return None
+    fields = data[close + 2:]
+    return fields[:1] or None
+
+
+def _pid_alive(pid):
+    """True when the process exists and has not already exited.
+
+    A zombie counts as gone. ``os.kill(pid, 0)`` succeeds for a process that
+    has exited but whose parent has not reaped it yet - and a child this
+    launcher started stays unreaped until it is waited on, so every shutdown
+    saw its children as alive, waited out the whole SIGTERM allowance, and
+    then SIGKILLed processes that had already stopped. Measured: three children
+    "ignored SIGTERM" and shutdown took nine seconds against a ten-second
+    budget, with the only real work being a 0.3s HTTP close.
+    """
+    state = _proc_state(pid)
+    if state is None:
+        return False
+    return state != "Z"
+
+
 def terminate(pid, term_timeout=TERM_TIMEOUT, kill_timeout=KILL_TIMEOUT):
     """Stop a process politely, then not politely. Returns True if it is gone."""
     try:
@@ -91,9 +122,7 @@ def terminate(pid, term_timeout=TERM_TIMEOUT, kill_timeout=KILL_TIMEOUT):
 
     deadline = time.time() + term_timeout
     while time.time() < deadline:
-        try:
-            os.kill(pid, 0)
-        except OSError:
+        if not _pid_alive(pid):
             return True
         time.sleep(0.05)
 
@@ -108,9 +137,7 @@ def terminate(pid, term_timeout=TERM_TIMEOUT, kill_timeout=KILL_TIMEOUT):
 
     deadline = time.time() + kill_timeout
     while time.time() < deadline:
-        try:
-            os.kill(pid, 0)
-        except OSError:
+        if not _pid_alive(pid):
             return True
         time.sleep(0.05)
     return False
