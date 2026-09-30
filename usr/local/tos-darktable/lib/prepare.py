@@ -100,6 +100,15 @@ def fix_ownership(config, uid, gid):
         path = os.path.join(config.root, name)
         try:
             os.makedirs(path, exist_ok=True)
+            # chown after creating, always.
+            #
+            # makedirs creates as the *calling* user - root here - regardless
+            # of who owns the parent, and the chown pass above ran before this
+            # directory existed. Without this line a data/ that had to be
+            # created is owned by root with the right mode, which looks
+            # correct in a listing and is unusable by the service. That is
+            # exactly what the verification container found.
+            os.chown(path, uid, gid)
             os.chmod(path, mode)
         except OSError as error:
             log.warning("cannot prepare %s: %s", path, error)
@@ -108,6 +117,7 @@ def fix_ownership(config, uid, gid):
         path = os.path.join(config.root, name)
         try:
             os.makedirs(path, exist_ok=True)
+            os.chown(path, uid, gid)
             os.chmod(path, 0o700)
         except OSError as error:
             log.warning("cannot prepare %s: %s", path, error)
