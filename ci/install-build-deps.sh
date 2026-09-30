@@ -51,7 +51,7 @@ apt-get update
 # found" without it. saxon-xslt would do as well, but xsltproc is one package.
 apt-get install -y --no-install-recommends \
     build-essential gcc-12 g++-12 cmake ninja-build pkg-config \
-    git ca-certificates gettext intltool libxml2-utils xsltproc \
+    curl git ca-certificates gettext intltool libxml2-utils xsltproc \
     desktop-file-utils \
     python3 python3-minimal dpkg-dev binutils file \
     bzip2 xz-utils ccache patchelf \

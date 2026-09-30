@@ -14,20 +14,21 @@
 #   ci/build-darktable.sh
 #
 # Environment:
-#   DARKTABLE_VERSION   upstream release to build          (default 5.6.1)
-#   DARKTABLE_SHA       commit to pin the tag to           (optional)
-#   PREFIX              install prefix seen at runtime     (default /usr/local/tos-darktable/app)
-#   STAGE               DESTDIR for the install            (default $PWD/stage)
-#   BUILD_DIR           out-of-tree build directory        (default $PWD/build)
+#   DARKTABLE_VERSION         upstream release to build        (default 5.6.1)
+#   DARKTABLE_TARBALL_SHA256  expected hash of the release     (checked when set)
+#   PREFIX                    install prefix seen at runtime   (default /usr/local/tos-darktable/app)
+#   STAGE                     DESTDIR for the install          (default $PWD/stage)
+#   BUILD_DIR                 out-of-tree build directory      (default $PWD/build)
+#   WORK                      scratch directory for the source (default $PWD/work)
 
 set -euo pipefail
 
 DARKTABLE_VERSION="${DARKTABLE_VERSION:-5.6.1}"
-DARKTABLE_SHA="${DARKTABLE_SHA:-}"
+DARKTABLE_TARBALL_SHA256="${DARKTABLE_TARBALL_SHA256:-}"
 PREFIX="${PREFIX:-/usr/local/tos-darktable/app}"
 STAGE="${STAGE:-$PWD/stage}"
 BUILD_DIR="${BUILD_DIR:-$PWD/build}"
-SRC_DIR="${SRC_DIR:-$PWD/src}"
+WORK="${WORK:-$PWD/work}"
 JOBS="${JOBS:-$(nproc)}"
 
 log() { printf '\n=== %s\n' "$*"; }
@@ -36,25 +37,57 @@ log() { printf '\n=== %s\n' "$*"; }
 # 1. Source
 # --------------------------------------------------------------------------- #
 
-if [ ! -d "$SRC_DIR/.git" ]; then
-    log "cloning darktable $DARKTABLE_VERSION"
-    git clone --depth 1 --branch "release-$DARKTABLE_VERSION" \
-        https://github.com/darktable-org/darktable.git "$SRC_DIR"
+# The published release tarball rather than a git clone.
+#
+# darktable's build needs several git submodules - rawspeed, OpenCL, LibRaw,
+# lua among them - and a plain `git clone --depth 1` does not fetch them, so
+# the configure step stops at "RawSpeed submodule not found". The release
+# tarball has them all folded in, and it is the same bytes upstream publishes:
+# checked against the copy this package was originally developed from, and
+# identical.
+#
+# It is also easier to trust. A tag can be moved, which a commit pin catches;
+# a tarball hash also catches a mirror serving something else, and it needs no
+# git at all.
+
+TARBALL_URL="https://github.com/darktable-org/darktable/releases/download/release-${DARKTABLE_VERSION}/darktable-${DARKTABLE_VERSION}.tar.xz"
+TARBALL="$WORK/darktable-${DARKTABLE_VERSION}.tar.xz"
+SRC_DIR="$WORK/darktable-${DARKTABLE_VERSION}"
+
+mkdir -p "$WORK"
+
+if [ ! -f "$TARBALL" ]; then
+    log "downloading darktable $DARKTABLE_VERSION"
+    curl -fsSL --retry 3 --retry-delay 5 -o "$TARBALL.part" "$TARBALL_URL"
+    mv "$TARBALL.part" "$TARBALL"
 else
-    log "reusing the existing checkout at $SRC_DIR"
+    log "reusing the downloaded tarball at $TARBALL"
 fi
 
-if [ -n "$DARKTABLE_SHA" ]; then
-    # A tag that has been moved upstream would otherwise change what ships
-    # without anything in the pipeline saying so. Comparing the commit turns
-    # that into a build failure that names the cause.
-    actual="$(git -C "$SRC_DIR" rev-parse HEAD)"
-    if [ "$actual" != "$DARKTABLE_SHA" ]; then
-        echo "error: release-$DARKTABLE_VERSION is at $actual, expected $DARKTABLE_SHA" >&2
-        echo "       upstream re-tagged; update DARKTABLE_SHA deliberately." >&2
+if [ -n "$DARKTABLE_TARBALL_SHA256" ]; then
+    echo "$DARKTABLE_TARBALL_SHA256  $TARBALL" | sha256sum -c - || {
+        echo "error: the release tarball does not match the expected hash." >&2
+        echo "       Either upstream republished the release, or something" >&2
+        echo "       served different bytes. Update DARKTABLE_TARBALL_SHA256" >&2
+        echo "       deliberately, after checking what changed." >&2
         exit 1
-    fi
-    log "pinned commit verified: $actual"
+    }
+    log "tarball verified: $DARKTABLE_TARBALL_SHA256"
+else
+    log "WARNING: DARKTABLE_TARBALL_SHA256 is not set; the source is unverified"
+fi
+
+if [ ! -d "$SRC_DIR/src" ]; then
+    log "extracting"
+    tar -xJf "$TARBALL" -C "$WORK"
+else
+    log "reusing the extracted source at $SRC_DIR"
+fi
+
+if [ ! -d "$SRC_DIR/src/external/rawspeed" ]; then
+    echo "error: $SRC_DIR/src/external/rawspeed is missing. The tarball did not" >&2
+    echo "       carry the bundled submodules, which the build requires." >&2
+    exit 1
 fi
 
 # --------------------------------------------------------------------------- #

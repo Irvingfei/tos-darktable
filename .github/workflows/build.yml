@@ -58,10 +58,14 @@ permissions:
 env:
   APP_ID: tos-darktable
   DT_VERSION: "5.6.1"
-  # The commit release-5.6.1 points at. Pinned so that a re-tag upstream turns
-  # into a build failure naming the cause, instead of a package that quietly
-  # ships different code than its release notes describe.
-  DARKTABLE_SHA: "03179f8e080aa9cedebfe14b098b7ba88940a292"
+  # SHA-256 of the published release tarball, which is what actually gets
+  # built. A tarball hash is a stronger pin than a commit: it also catches a
+  # mirror serving different bytes, and the tarball carries the git submodules
+  # (rawspeed, OpenCL, LibRaw, lua) that a plain clone does not.
+  #
+  # e8b84ac9... is the same file this package was developed against; verified
+  # byte for byte.
+  DARKTABLE_TARBALL_SHA256: "e8b84ac98b0b689a244e4036c4b56394c1d58ce2d9abc05e0a060ef9f756dc36"
 
 jobs:
   # ------------------------------------------------------------------------- #
@@ -166,19 +170,19 @@ jobs:
           # into a forty-minute rebuild instead of an eight-minute one. The
           # cases that genuinely require recompiling, such as changing the
           # compiler, are already part of ccache's own hash.
-          key: dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_SHA }}-${{ hashFiles('app/ci/build-darktable.sh') }}
+          key: dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_TARBALL_SHA256 }}-${{ hashFiles('app/ci/build-darktable.sh') }}
           restore-keys: |
-            dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_SHA }}-
+            dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_TARBALL_SHA256 }}-
 
       - name: Build darktable
         env:
           CCACHE_DIR: /root/.ccache
           # Relative on purpose; see the note at the top of this file.
-          SRC_DIR: src
+          WORK: work
           BUILD_DIR: build
           STAGE: stage
           DARKTABLE_VERSION: ${{ env.DT_VERSION }}
-          DARKTABLE_SHA: ${{ env.DARKTABLE_SHA }}
+          DARKTABLE_TARBALL_SHA256: ${{ env.DARKTABLE_TARBALL_SHA256 }}
         run: |
           set -o pipefail
           bash app/ci/build-darktable.sh 2>&1 | tee build.log
