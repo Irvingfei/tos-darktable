@@ -6,7 +6,7 @@ APPID="tos-darktable"
 ROOT="/usr/local/$APPID"
 SERVICE="$APPID.service"
 SHARE="darktable-photos"
-VERSION=1.0.15
+VERSION=1.0.16
 case "$1" in
     configure)
         # 1. Re-assert ownership and permissions on the package payload.

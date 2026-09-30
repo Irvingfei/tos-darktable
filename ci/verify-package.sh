@@ -47,6 +47,18 @@ fi
 
 # --------------------------------------------------------------------------- #
 log "checking the shared library closure"
+
+# The bundle has to be on the search path for this check, exactly as the
+# launcher puts it there at runtime.
+#
+# Without this, ldd resolves against the system, and a bare container has no
+# GTK at all - so every bundled library reported its own siblings as missing
+# and the check could never pass. It was measuring the wrong thing: the
+# question is not "does the system have GTK", it is "is the bundle plus the
+# base system sufficient". Only with the bundle on the path does a clean result
+# answer that.
+export LD_LIBRARY_PATH="$ROOT/depends/lib:$ROOT/app/lib/darktable"
+
 missing_report="$(mktemp)"
 count=0
 while IFS= read -r -d '' file; do
