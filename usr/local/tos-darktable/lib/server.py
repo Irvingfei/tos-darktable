@@ -294,35 +294,57 @@ class Supervisor(object):
         Order matters: the editor first, so it is not left drawing into a
         display that has gone; then the HTTP listener, so no new WebSocket can
         attach to a socket about to disappear; then VNC; then X.
+
+        Each phase is timed and logged. The budget is ten seconds and the check
+        in ci/verify-package.sh fails the run at eight, so a phase that starts
+        consuming its whole allowance is the thing worth seeing - and the total
+        alone cannot say which one it was.
         """
         log.info("shutting down")
+        overall = time.monotonic()
+
+        def phase(name, action):
+            started = time.monotonic()
+            action()
+            elapsed = time.monotonic() - started
+            log.info("  shutdown: %s took %.1fs", name, elapsed)
+            return elapsed
 
         if self.editor is not None:
-            self.editor.stop(term_timeout=SHUTDOWN_EDITOR_TIMEOUT)
+            phase("darktable", lambda: self.editor.stop(term_timeout=SHUTDOWN_EDITOR_TIMEOUT))
             self.editor = None
 
         if self.http_server is not None:
-            try:
-                self.http_server.shutdown()
-                self.http_server.server_close()
-            except Exception as error:  # pragma: no cover - defensive
-                log.warning("error closing the HTTP listener: %s", error)
+            def close_http():
+                try:
+                    self.http_server.shutdown()
+                    self.http_server.server_close()
+                except Exception as error:  # pragma: no cover - defensive
+                    log.warning("error closing the HTTP listener: %s", error)
+
+            phase("http listener", close_http)
             self.http_server = None
 
         if self.display_session is not None:
             # VNC before X, so no client observes a display that has gone.
             if self.display_session.x11vnc is not None:
-                self.display_session.x11vnc.stop(term_timeout=SHUTDOWN_VNC_TIMEOUT)
+                phase(
+                    "x11vnc",
+                    lambda: self.display_session.x11vnc.stop(term_timeout=SHUTDOWN_VNC_TIMEOUT),
+                )
                 self.display_session.x11vnc = None
             if self.display_session.xvfb is not None:
-                self.display_session.xvfb.stop(term_timeout=SHUTDOWN_X_TIMEOUT)
+                phase(
+                    "Xvfb",
+                    lambda: self.display_session.xvfb.stop(term_timeout=SHUTDOWN_X_TIMEOUT),
+                )
                 self.display_session.xvfb = None
             self.display_session.stop()
             self.display_session = None
 
         self.session.clear()
         self.lock.release()
-        log.info("stopped")
+        log.info("stopped in %.1fs", time.monotonic() - overall)
 
 
 def main(argv=None):

@@ -250,6 +250,8 @@ shutdown_seconds=$(( $(date +%s) - shutdown_start ))
 
 if [ "$shutdown_seconds" -gt 8 ]; then
     fail "shutdown took ${shutdown_seconds}s; the systemd unit allows 10s"
+    # The launcher times each phase, so the log says which one spent the time.
+    dump_logs
     exit 1
 fi
 echo "  stopped within ${shutdown_seconds}s"
