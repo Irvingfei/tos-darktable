@@ -303,12 +303,16 @@ jobs:
       - name: Install only what a bare device would have
         # Deliberately not the build dependencies. If the bundle is missing
         # something, this is where it must fail.
+        #
+        # bzip2 is here because a real TOS device has it - verified on one -
+        # and postinst needs it to unpack webui.bz2, as does the platform
+        # itself. Leaving it out tested this container rather than the package.
         run: |
           set -eux
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y --no-install-recommends \
-            dpkg binutils curl procps python3 ca-certificates
+            dpkg binutils curl procps python3 ca-certificates bzip2
 
       - name: Install and run the package
         run: |
