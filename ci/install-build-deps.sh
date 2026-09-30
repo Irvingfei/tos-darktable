@@ -32,9 +32,23 @@ printf 'APT::Get::Assume-Yes "true";\n' > /etc/apt/apt.conf.d/80forceyes
 apt-get update
 
 # Required. The configure step fails outright without any of these.
+#
+# gcc-12 and g++-12 specifically, not the default gcc-11 that jammy ships:
+# darktable 5.6.1 refuses anything older than version 12 in
+# cmake/compiler-versions.cmake and prints "GNU C compiler version 11.4.0 is
+# too old and is unsupported", then the same for C++, then a libstdc++ version
+# check that fails with "Unsupported libstdc++ version: 11".
+#
+# That is safe because Ubuntu 22.04's libstdc++6 is itself built from GCC 12 -
+# 12.3.0-1ubuntu1~22.04 on the target device, exporting GLIBCXX_3.4.30 - even
+# though gcc-11 is the default compiler. So a binary built here with g++-12
+# runs against the system libstdc++ and does not need one bundled.
+#
+# intltool provides intltool-merge, which CMakeLists.txt looks for by name and
+# fails on when absent.
 apt-get install -y --no-install-recommends \
-    build-essential gcc-11 g++-11 cmake ninja-build pkg-config \
-    git ca-certificates gettext libxml2-utils \
+    build-essential gcc-12 g++-12 cmake ninja-build pkg-config \
+    git ca-certificates gettext intltool libxml2-utils \
     python3 python3-minimal dpkg-dev binutils file \
     bzip2 xz-utils ccache patchelf \
     libglib2.0-dev libgtk-3-dev libxml2-dev libpotrace-dev \

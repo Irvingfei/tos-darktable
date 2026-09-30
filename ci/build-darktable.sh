@@ -72,10 +72,15 @@ log "configuring"
 # shells out to git describe and falls back to "archive-<sha>" for a source
 # tree without history.
 
+# darktable 5.6.1 requires GCC 12 or newer; jammy's default compiler is 11 and
+# the configure step refuses it outright. Ubuntu 22.04 does ship gcc-12, and
+# its libstdc++6 is built from GCC 12 as well, so a binary produced here links
+# against the system libstdc++ and needs none bundled. See
+# ci/install-build-deps.sh for the full reasoning.
 cmake -S "$SRC_DIR" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=gcc-11 \
-    -DCMAKE_CXX_COMPILER=g++-11 \
+    -DCMAKE_C_COMPILER=gcc-12 \
+    -DCMAKE_CXX_COMPILER=g++-12 \
     -DCMAKE_C_COMPILER_LAUNCHER=ccache \
     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     -DCMAKE_INSTALL_PREFIX="$PREFIX" \
