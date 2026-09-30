@@ -19,7 +19,15 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 APPID="tos-darktable"
 PREFIX="/usr/local/$APPID"
-EXTRACT="/root/out"
+# Unpacked somewhere world-traversable, not under /root.
+#
+# /root is mode 0700, so an application account cannot traverse into anything
+# beneath it. The package's own directory was fine - ownership and modes were
+# correct - but the preparation step's check that the account can reach data/
+# failed, correctly, because the account could not get past /root to reach it
+# at all. On a device the package lives under /usr/local, whose ancestors are
+# traversable, so this was a property of the harness rather than the package.
+EXTRACT="/opt/tos-verify"
 ROOT="$EXTRACT$PREFIX"
 PORT=9312
 PASSWORD="verification-$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
@@ -47,8 +55,9 @@ dump_logs() {
     # Two locations, because they differ. The package's own log_dir default is
     # relative to where it was unpacked; the one in tos-darktable.env is the
     # absolute path the service uses on a device. In this container those are
-    # /root/out/usr/local/... and /usr/local/... respectively, so a dump that
-    # checked only one of them found nothing and hid the reason for a failure.
+    # /opt/tos-verify/usr/local/... and /usr/local/... respectively, so a dump
+    # that checked only one of them found nothing and hid the reason for a
+    # failure.
     for base in "$ROOT" "/usr/local/$APPID"; do
         for name in xvfb x11vnc darktable launcher; do
             if [ -f "$base/logs/$name.log" ]; then
