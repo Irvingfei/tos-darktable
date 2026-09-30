@@ -6,15 +6,21 @@ workstation, so ``tools/build.py`` can produce the archive with its own ar/tar
 writer. This module reads the archive back and verifies the structure the TOS
 platform parser depends on:
 
-  * the ar container holds exactly ``debian-binary``, ``control.tar.gz`` and
-    ``data.tar.gz``, in that order
+  * the ar container holds ``debian-binary`` and the two tar members, in that
+    order
   * ``debian-binary`` contains ``2.0``
-  * ``control.tar.gz`` holds ``./control`` and the lifecycle scripts, and the
+  * the control member holds ``./control`` and the lifecycle scripts, and the
     scripts are executable
-  * ``data.tar.gz`` never contains the ``DEBIAN`` directory
-  * the metadata sits under ``usr/local/<appid>/`` inside ``data.tar``, never
-    at the archive root - this is the single most common fatal packaging error
+  * the data member never contains the ``DEBIAN`` directory
+  * the metadata sits under ``usr/local/<appid>/`` inside the data member,
+    never at the archive root - this is the most common fatal packaging error
   * no payload file is group- or world-writable
+
+The two tar members are found by prefix, not by exact name, and are opened
+with compression auto-detection. ``dpkg-deb`` writes ``control.tar.xz`` and
+``data.tar.xz`` for a ``-Zxz`` build while the built-in writer emits
+``.tar.gz``, and hard-coding either one means the check only ever runs on the
+machine that produced the package it already knew how to read.
 
 Usage:
     python tools/inspect_deb.py dist/tos-darktable_x86_64.deb
@@ -92,14 +98,18 @@ def normalise(name):
 
 
 def tar_members(compressed):
-    """Stream a gzipped tar and return (name, size, mode, is_dir, is_link).
+    """Return (name, size, mode, is_dir, is_link) for a compressed tar.
 
-    Decompression is streamed rather than done in one call: the data archive
+    Opened with ``r:*`` so the compression is detected from the data rather
+    than assumed from the member's extension: dpkg-deb writes .tar.xz for a
+    -Zxz build and .tar.gz otherwise, and the reader has to cope with both.
+
+    Decompression is streamed rather than done in one call: the data member
     holds several hundred megabytes once expanded, and materialising that in
     memory to inspect a few headers would be wasteful at best.
     """
     members = []
-    with tarfile.open(fileobj=io.BytesIO(compressed), mode="r:gz") as archive:
+    with tarfile.open(fileobj=io.BytesIO(compressed), mode="r:*") as archive:
         for member in archive:
             members.append((
                 normalise(member.name),
@@ -111,6 +121,14 @@ def tar_members(compressed):
     return members
 
 
+def _find_member(names, prefix):
+    """Return the ar member name starting with ``prefix``, or None."""
+    for name in names:
+        if name.startswith(prefix):
+            return name
+    return None
+
+
 def inspect(path, app_id=APP_ID, verbose=True):
     errors = []
     notes = []
@@ -120,8 +138,16 @@ def inspect(path, app_id=APP_ID, verbose=True):
 
     if names[:1] != ["debian-binary"]:
         errors.append("the first ar member must be debian-binary, found %r" % (names[:1] or None))
-    if names != ["debian-binary", "control.tar.gz", "data.tar.gz"]:
-        errors.append("unexpected ar members or order: %s" % ", ".join(names))
+
+    control_name = _find_member(names, "control.tar")
+    data_name = _find_member(names, "data.tar")
+
+    if control_name is None:
+        errors.append("no control.tar member in the ar container: %s" % ", ".join(names))
+    if data_name is None:
+        errors.append("no data.tar member in the ar container: %s" % ", ".join(names))
+    if len(names) != 3:
+        errors.append("expected exactly three ar members, found %d: %s" % (len(names), ", ".join(names)))
     if errors:
         return errors, notes
 
@@ -130,14 +156,15 @@ def inspect(path, app_id=APP_ID, verbose=True):
         errors.append("debian-binary must contain 2.0")
     else:
         notes.append("debian-binary version is 2.0")
+    notes.append("members: %s" % ", ".join(names))
 
-    control_members = tar_members(payloads["control.tar.gz"])
+    control_members = tar_members(payloads[control_name])
     control_files = [item[0] for item in control_members if not item[3]]
 
     for required in REQUIRED_CONTROL_FILES:
         if required not in control_files:
-            errors.append("control.tar.gz is missing %s" % required)
-    notes.append("control.tar.gz holds %d file(s)" % len(control_files))
+            errors.append("%s is missing %s" % (control_name, required))
+    notes.append("%s holds %d file(s)" % (control_name, len(control_files)))
 
     for name, _size, mode, is_dir, _link in control_members:
         if is_dir:
@@ -145,19 +172,19 @@ def inspect(path, app_id=APP_ID, verbose=True):
         if name in ("preinst", "postinst", "prerm", "postrm") and not (mode & 0o111):
             errors.append("lifecycle script %s is not executable (mode %o)" % (name, mode))
 
-    data_members = tar_members(payloads["data.tar.gz"])
+    data_members = tar_members(payloads[data_name])
     all_names = [item[0] for item in data_members]
     data_files = [item[0] for item in data_members if not item[3]]
 
     if any(name == "DEBIAN" or name.startswith("DEBIAN/") for name in all_names):
-        errors.append("data.tar.gz must not contain the DEBIAN directory")
+        errors.append("%s must not contain the DEBIAN directory" % data_name)
     else:
-        notes.append("data.tar.gz excludes DEBIAN")
+        notes.append("%s excludes DEBIAN" % data_name)
 
     for required in REQUIRED_DATA_FILES:
         if required not in data_files:
-            errors.append("data.tar.gz is missing %s" % required)
-    notes.append("data.tar.gz holds %d file(s)" % len(data_files))
+            errors.append("%s is missing %s" % (data_name, required))
+    notes.append("%s holds %d file(s)" % (data_name, len(data_files)))
 
     # The metadata must not sit at the archive root. The platform reads
     # config.ini out of data.tar at usr/local/<appid>/, and a copy at the root
@@ -191,7 +218,7 @@ def inspect(path, app_id=APP_ID, verbose=True):
         for item in errors:
             print("  [FAIL] %s" % item)
         print("-" * 62)
-        print("data.tar.gz members (first %d of %d):" % (min(LISTING_LIMIT, len(data_files)), len(data_files)))
+        print("%s members (first %d of %d):" % (data_name, min(LISTING_LIMIT, len(data_files)), len(data_files)))
         for name in sorted(data_files)[:LISTING_LIMIT]:
             print("    %s" % name)
         if len(data_files) > LISTING_LIMIT:
