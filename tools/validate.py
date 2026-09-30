@@ -830,6 +830,14 @@ def check_ports(report):
         if not os.path.isfile(path):
             continue
         text = re.sub(r"#.*", "", read_bytes(path).decode("utf-8", "replace"))
+        # Dotted version numbers are removed before the scan.
+        #
+        # A dot is not a word character, so `VERSION=1.0.22` is tokenised as
+        # 1, 0 and 22 - and 22 is a reserved port. The check therefore failed
+        # on a version number rather than on a port, and only for the version
+        # numbers that happen to contain one, which is why it passed for
+        # twenty-one releases and then did not.
+        text = re.sub(r"\b\d+(?:\.\d+)+\b", "<version>", text)
         for match in re.finditer(r"\b(\d{2,5})\b", text):
             value = int(match.group(1))
             if value in RESERVED_PORTS:
