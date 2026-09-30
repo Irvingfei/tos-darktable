@@ -332,11 +332,34 @@ def run(config):
         path = os.path.join(config.root, name)
         if not can_access_as(path, uid, gid):
             log.error(
-                "%s is still not writable by %s after preparation; the service "
-                "cannot start",
+                "%s is not writable by %s after preparation; the service cannot start",
                 path,
                 config.app_user,
             )
+            # Walk the path and print what each level looks like.
+            #
+            # The reason is nearly always an ancestor the account cannot
+            # traverse rather than the directory itself, and which one is not
+            # visible from the failure. Printing the chain answers it in one
+            # run instead of several: the first level whose mode lacks "other
+            # execute" is the one blocking.
+            probe = path
+            while True:
+                try:
+                    status = os.stat(probe)
+                    log.error(
+                        "  %s  mode %04o  owner %d:%d",
+                        probe,
+                        status.st_mode & 0o7777,
+                        status.st_uid,
+                        status.st_gid,
+                    )
+                except OSError as error:
+                    log.error("  %s  (%s)", probe, error)
+                parent = os.path.dirname(probe)
+                if parent == probe:
+                    break
+                probe = parent
             return 1
 
     return 0
