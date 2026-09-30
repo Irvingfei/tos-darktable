@@ -273,6 +273,40 @@ def populate(depends, report):
 
     report["populated"] = copied
 
+    # Two payload pieces that are only Recommends of packages the build already
+    # needs, so with recommends switched off they are absent unless installed
+    # by name. Neither stops the build, and neither produces an error at
+    # runtime - they produce a wrong-looking application:
+    #
+    #   the SVG loader  darktable draws its whole interface with SVG icons, so
+    #                   without it every toolbar button is blank;
+    #   the lens database  darktable reports "could not load lens database" in
+    #                   a log nobody reads, and corrections never apply.
+    #
+    # Checked here rather than left to the install script so the failure is
+    # attributed to the bundle and not to darktable.
+    svg_loader = os.path.join(
+        depends, "lib/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-svg.so"
+    )
+    if not os.path.isfile(svg_loader):
+        warn(
+            "the gdk-pixbuf SVG loader is missing from the bundle; darktable's "
+            "icons will not render. Install librsvg2-common in the build image."
+        )
+    report["svg_loader_bundled"] = os.path.isfile(svg_loader)
+
+    lensfun = os.path.join(depends, "share/lensfun")
+    lensfun_versions = [
+        name for name in (os.listdir(lensfun) if os.path.isdir(lensfun) else [])
+        if name.startswith("version_")
+    ]
+    if not lensfun_versions:
+        warn(
+            "the lensfun database is missing from the bundle; lens corrections "
+            "will silently do nothing. Install liblensfun-data-v1 in the build image."
+        )
+    report["lensfun_versions"] = lensfun_versions
+
     # The schemas are a binary cache. Copying the .xml sources is not enough:
     # GSettings reads the compiled file, and without it every GTK setting falls
     # back to a default and the theme misbehaves in ways that look like bugs.

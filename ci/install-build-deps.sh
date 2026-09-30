@@ -59,4 +59,24 @@ apt-get install -y --no-install-recommends \
     xvfb x11vnc xauth x11-xkb-utils xkb-data fonts-dejavu-core \
     libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin
 
+# Runtime data and loaders that are only Recommends of packages already
+# installed above, and are therefore absent because recommends are switched
+# off. Neither breaks the build; both break the application in a way that is
+# invisible until it is running.
+#
+#   liblensfun-data-v1  the lens database at /usr/share/lensfun. Without it
+#                       darktable starts, loads, and silently reports that it
+#                       cannot load the lens database - the corrections simply
+#                       never apply.
+#   librsvg2-common     the gdk-pixbuf SVG loader. darktable's interface is
+#                       drawn with SVG icons, so without it every toolbar
+#                       button renders blank.
+#
+# Installed individually and tolerated, so a renamed package degrades rather
+# than failing the build; the echo lands in the captured apt log either way.
+for package in liblensfun-data-v1 librsvg2-common; do
+    apt-get install -y --no-install-recommends "$package" \
+        || echo "runtime payload $package is unavailable; that feature will be missing"
+done
+
 echo "build dependencies installed"
