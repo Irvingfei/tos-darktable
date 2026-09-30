@@ -337,10 +337,24 @@ def child_environment_is_self_contained():
     expect_equal(env["XDG_RUNTIME_DIR"], config.run_dir, "XDG_RUNTIME_DIR was not set")
     expect_equal(env["GDK_BACKEND"], "x11", "GTK must be pinned to the X11 backend")
 
-    # Every relocated path must be inside the application root, or the bundle
-    # is not actually relocatable and will reach for the build host.
+    # LD_LIBRARY_PATH is compared exactly rather than merely checked for
+    # containment.
+    #
+    # The bundle must be hermetic: the loader has to resolve every dependency
+    # from depends/lib, never from whatever the surrounding environment
+    # happens to point at. An equality check catches an extra entry on any
+    # platform, which a "does it start with the app root" check does not - on
+    # Windows it cannot even split the value, because the paths themselves
+    # contain a colon, and the check silently passed there. That is how an
+    # ambient LD_LIBRARY_PATH leaking into the bundle reached CI.
+    expect_equal(
+        env["LD_LIBRARY_PATH"],
+        ":".join([config.depends_lib, os.path.join(config.app_dir, "lib", "darktable")]),
+        "LD_LIBRARY_PATH must name the bundled directories and nothing else",
+    )
+
+    # The single-path variables only have to be inside the application.
     for name in (
-        "LD_LIBRARY_PATH",
         "GTK_PATH",
         "GTK_IM_MODULE_FILE",
         "GDK_PIXBUF_MODULE_FILE",
@@ -349,11 +363,10 @@ def child_environment_is_self_contained():
     ):
         value = env.get(name, "")
         expect(value, "%s was not set" % name)
-        for part in value.split(os.pathsep):
-            expect(
-                part.startswith(config.root),
-                "%s points outside the application: %s" % (name, part),
-            )
+        expect(
+            value.startswith(config.root),
+            "%s points outside the application: %s" % (name, value),
+        )
 
 
 @test

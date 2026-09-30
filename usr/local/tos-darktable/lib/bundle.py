@@ -145,11 +145,20 @@ def child_environment(config, display=None):
     """
     env = dict(os.environ)
 
-    lib_dirs = [config.depends_lib, os.path.join(config.app_dir, "lib", "darktable")]
-    existing = env.get("LD_LIBRARY_PATH")
-    if existing:
-        lib_dirs.append(existing)
-    env["LD_LIBRARY_PATH"] = ":".join(lib_dirs)
+    # Built from the bundle alone, deliberately *not* from any ambient
+    # LD_LIBRARY_PATH.
+    #
+    # The whole point of shipping the runtime under depends/ is that the
+    # application resolves its libraries from files we control. Appending
+    # whatever the surrounding environment happened to set would let the loader
+    # satisfy a dependency from the host instead, which reintroduces exactly
+    # the version coupling the bundle exists to remove - and does it only on
+    # the machines where that variable happens to be set, so the failure would
+    # never appear during development. The self-test asserts this list contains
+    # nothing outside the application directory.
+    env["LD_LIBRARY_PATH"] = ":".join(
+        [config.depends_lib, os.path.join(config.app_dir, "lib", "darktable")]
+    )
 
     env["PATH"] = os.pathsep.join(
         [config.depends_bin, os.path.join(config.app_dir, "bin"), env.get("PATH", "/usr/bin:/bin")]
