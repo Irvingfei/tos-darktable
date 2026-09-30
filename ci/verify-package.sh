@@ -17,7 +17,8 @@ set -euo pipefail
 DEB="${1:?usage: verify-package.sh <package.deb>}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-PREFIX="/usr/local/tos-darktable"
+APPID="tos-darktable"
+PREFIX="/usr/local/$APPID"
 EXTRACT="/root/out"
 ROOT="$EXTRACT$PREFIX"
 PORT=9312
@@ -43,10 +44,19 @@ trap cleanup EXIT
 dump_logs() {
     echo "--- launcher log ---"
     cat /tmp/launcher.log 2>/dev/null || echo "(absent)"
-    for name in xvfb x11vnc darktable; do
-        echo "--- logs/${name}.log ---"
-        cat "$ROOT/logs/$name.log" 2>/dev/null || echo "(absent)"
-        echo
+    # Two locations, because they differ. The package's own log_dir default is
+    # relative to where it was unpacked; the one in tos-darktable.env is the
+    # absolute path the service uses on a device. In this container those are
+    # /root/out/usr/local/... and /usr/local/... respectively, so a dump that
+    # checked only one of them found nothing and hid the reason for a failure.
+    for base in "$ROOT" "/usr/local/$APPID"; do
+        for name in xvfb x11vnc darktable launcher; do
+            if [ -f "$base/logs/$name.log" ]; then
+                echo "--- $base/logs/$name.log ---"
+                cat "$base/logs/$name.log"
+                echo
+            fi
+        done
     done
 }
 
@@ -97,6 +107,30 @@ if [ -s "$missing_report" ]; then
 fi
 rm -f "$missing_report"
 echo "  $count file(s) checked, no unresolved library"
+
+# --------------------------------------------------------------------------- #
+log "probing the X server directly"
+
+# Run the bundled X server once, on its own, with its output captured.
+#
+# The launcher starts it as a child and sends the child's output to a log file,
+# so when it exits immediately the reason is one step removed and, as it turned
+# out, written to a path this script was not looking at. Starting it here means
+# the refusal is in the output either way.
+PROBE_DISPLAY=77
+"$ROOT/depends/bin/Xvfb" ":$PROBE_DISPLAY" -screen 0 320x240x24 -nolisten tcp \
+    > /tmp/xvfb-probe.log 2>&1 &
+PROBE_PID=$!
+sleep 3
+if kill -0 "$PROBE_PID" 2>/dev/null; then
+    echo "  Xvfb started and is running"
+    kill -TERM "$PROBE_PID" 2>/dev/null || true
+    wait "$PROBE_PID" 2>/dev/null || true
+else
+    echo "  Xvfb exited immediately. Its output:"
+    sed 's/^/    /' /tmp/xvfb-probe.log
+fi
+echo "  /tmp/.X11-unix: $(ls -ld /tmp/.X11-unix 2>&1)"
 
 # --------------------------------------------------------------------------- #
 log "running the launcher's own check"
