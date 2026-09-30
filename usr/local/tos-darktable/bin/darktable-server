@@ -81,10 +81,26 @@ def main(argv=None):
         action="store_true",
         help="verify the runtime bundle and exit without starting the session",
     )
+    parser.add_argument(
+        "--prepare",
+        action="store_true",
+        help="repair ownership and the shared folder as root, then exit. Run by "
+             "the unit's ExecStartPre=+ before every start; see lib/prepare.py "
+             "for why this cannot be done at install time.",
+    )
     args = parser.parse_args(argv)
 
     if args.check:
         return check()
+
+    if args.prepare:
+        from lib import prepare
+        from lib import logging_setup
+
+        # Deliberately not logging to logs/: this runs before ownership has
+        # been repaired, so that directory may not be writable by anyone yet.
+        logging_setup.setup_logging("INFO", to_file=False)
+        return prepare.run(config_module.config)
 
     from lib import server
 

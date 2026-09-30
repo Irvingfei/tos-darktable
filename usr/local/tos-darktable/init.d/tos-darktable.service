@@ -12,8 +12,27 @@ StartLimitIntervalSec=120
 [Service]
 Type=simple
 User=tos-darktable
-Group=tos-darktable
+
+# No Group= directive, and that is deliberate.
+#
+# The platform creates the application account with the shared group
+# "allusers" as its primary group, and does not create a group named after the
+# application. Naming one here makes systemd fail to resolve it, and the unit
+# dies with status=216/GROUP before the program is ever executed - which is
+# exactly how the first submission failed on a real device. Omitting Group=
+# makes systemd use the account's actual primary group, whatever the platform
+# chose for it, so this cannot break if that choice changes.
 WorkingDirectory=/usr/local/tos-darktable
+
+# Setup that needs root and cannot be done at install time.
+#
+# The platform creates the application account *after* postinst has run, so
+# anything postinst does that depends on that account - chowning the data
+# directories to it, registering it as the owner of the shared folder - fails
+# silently during installation and leaves a service that cannot start. This
+# step runs as root before every start and repairs whatever the install could
+# not do. The "+" prefix is what grants it root despite User= above.
+ExecStartPre=+/usr/local/tos-darktable/bin/darktable-server --prepare
 ExecStart=/usr/local/tos-darktable/bin/darktable-server
 EnvironmentFile=-/usr/local/tos-darktable/tos-darktable.env
 TimeoutStartSec=60

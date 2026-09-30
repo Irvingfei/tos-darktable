@@ -22,6 +22,7 @@ bundled dependencies, and the launcher points the loader and GTK at it
 explicitly rather than relying on any platform-side mapping.
 """
 
+import json
 import os
 
 from . import APP_ID
@@ -88,6 +89,14 @@ class Config(object):
         self.app_id = APP_ID
         self.root = APP_ROOT
 
+        # The account the platform created for this application, read from the
+        # package metadata rather than repeated here. It is needed at runtime
+        # because the platform creates it *after* postinst has run, so the
+        # ownership and shared-folder setup that install could not do has to be
+        # redone by the service's own root-privileged preparation step.
+        self.config_ini = os.path.join(APP_ROOT, "config.ini")
+        self.app_user = self._read_app_user()
+
         self.data_dir = _setting("DTOS_DATA_DIR", os.path.join(APP_ROOT, "data"))
         self.log_dir = _setting("DTOS_LOG_DIR", os.path.join(APP_ROOT, "logs"))
         self.webui_dir = _setting("DTOS_WEBUI_DIR", os.path.join(APP_ROOT, "webui"))
@@ -142,6 +151,19 @@ class Config(object):
         self.session_file = os.path.join(self.run_dir, "session.json")
         self.lock_file = os.path.join(self.run_dir, "launcher.lock")
         self.vnc_socket = os.path.join(self.run_dir, "x11vnc.sock")
+
+    def _read_app_user(self):
+        """Return the ``user`` field of the packaged config.ini, or None.
+
+        None means the metadata could not be read, which is not fatal: the
+        preparation step simply has nothing to chown and says so, rather than
+        guessing an account name and changing the ownership of the wrong thing.
+        """
+        try:
+            with open(self.config_ini, "r", encoding="utf-8") as handle:
+                return json.load(handle).get("user") or None
+        except (OSError, ValueError):
+            return None
 
     def _discover_share(self):
         """Find the photograph share by name across the mounted volumes.

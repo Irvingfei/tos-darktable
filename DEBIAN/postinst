@@ -6,7 +6,7 @@ APPID="tos-darktable"
 ROOT="/usr/local/$APPID"
 SERVICE="$APPID.service"
 SHARE="darktable-photos"
-VERSION=1.0.1
+VERSION=1.0.2
 case "$1" in
     configure)
         # 1. Re-assert ownership and permissions on the package payload.
@@ -17,12 +17,36 @@ case "$1" in
         #    report success. Resolve it before anything walks the tree.
         REAL_ROOT="$(readlink -f "$ROOT" 2>/dev/null || echo "$ROOT")"
 
-        chown -R "$APPID:$APPID" "$REAL_ROOT" 2>/dev/null || true
         # The package may be produced on a platform that cannot record POSIX
         # modes, so the installed tree is normalised here instead of trusting
         # the archive: directories 0755, data files 0644, no group/world write.
         chmod -R u=rwX,go=rX "$REAL_ROOT" 2>/dev/null || true
         chmod 0755 "$ROOT/bin/darktable-server" 2>/dev/null || true
+
+        # Ownership needs the account, and the account may not exist yet.
+        #
+        # The platform creates the application account *after* postinst has
+        # run, so "chown to $APPID:$APPID" usually fails here - and it fails in
+        # the worst way, silently, because the group named after the
+        # application is never created at all: the platform gives the account
+        # the shared group allusers as its primary group. A file left owned by
+        # root under data/ then stops the service from starting.
+        #
+        # So this is done properly when the account happens to exist, and the
+        # service's own root-privileged preparation step (ExecStartPre=+ in the
+        # systemd unit, lib/prepare.py) does it on every start regardless. That
+        # second path is the one that actually matters; this is the fast path.
+        if id -u "$APPID" >/dev/null 2>&1; then
+            APP_GROUP="$(id -gn "$APPID" 2>/dev/null || true)"
+            if [ -n "$APP_GROUP" ]; then
+                chown -R "$APPID:$APP_GROUP" "$REAL_ROOT" 2>/dev/null || true
+            else
+                chown -R "$APPID" "$REAL_ROOT" 2>/dev/null || true
+            fi
+        else
+            echo "note: the application account '$APPID' does not exist yet."
+            echo "      Ownership and the shared folder will be set on first start."
+        fi
 
         # 2. Runtime directories, all inside the application directory.
         #

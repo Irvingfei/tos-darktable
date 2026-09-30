@@ -521,10 +521,21 @@ def check_systemd(report, config):
     else:
         report.ok("service declares a non-root User")
 
-    if not group:
-        report.warn("service Group", "Group directive is missing")
+    # Group= must be absent. The platform creates the application account with
+    # the shared group "allusers" as its primary group and does not create a
+    # group named after the application, so naming one here makes systemd fail
+    # to resolve it and the unit dies with status=216/GROUP before the program
+    # is reached. This is not theoretical: it is how the first submission
+    # failed, and it is invisible at build time because the name looks correct.
+    if group:
+        report.error(
+            "service omits Group",
+            "Group=%s is set. The platform does not create a same-named group; "
+            "systemd will fail with status=216/GROUP. Omit Group= so the "
+            "account's own primary group is used." % group.group(1).strip(),
+        )
     else:
-        report.ok("service declares a Group")
+        report.ok("service omits Group= and will use the account's primary group")
 
     if user and config and user.group(1).strip() != config.get("user"):
         report.error(
@@ -533,6 +544,19 @@ def check_systemd(report, config):
         )
     else:
         report.ok("service user matches config.ini")
+
+    # The root-privileged preparation step. Without it, ownership and the
+    # shared folder cannot be set up at all, because the platform creates the
+    # account after postinst has run.
+    if re.search(r"^ExecStartPre=\+.*darktable-server --prepare\s*$", text, re.MULTILINE):
+        report.ok("service repairs ownership before starting (ExecStartPre=+)")
+    else:
+        report.error(
+            "service preparation step",
+            "ExecStartPre=+/usr/local/%s/bin/darktable-server --prepare is required; "
+            "the platform creates the application account after postinst, so "
+            "ownership and the shared folder can only be set on first start" % APP_ID,
+        )
 
     for directive in ("StartLimitBurst", "StartLimitIntervalSec", "NoNewPrivileges",
                       "ExecStart", "WantedBy=multi-user.target"):
