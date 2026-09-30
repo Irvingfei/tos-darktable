@@ -13,6 +13,15 @@
 # published list.
 set -eux
 
+# Evidence, not decoration. The workflow runs this through `bash`, but a step's
+# own shell is a separate matter: a container job's default shell is sh (dash
+# on Ubuntu), and a bashism at the top of a step - `set -o pipefail` is the
+# usual one - makes the step fail in zero seconds with nothing in any log,
+# because the file redirecting its output never gets created. Printing the
+# interpreter here means the next such failure is visible in the captured log
+# instead of being inferred from timings.
+echo "shell: $0 | BASH_VERSION=${BASH_VERSION:-<not bash>} | /bin/sh -> $(readlink -f /bin/sh)"
+
 export DEBIAN_FRONTEND=noninteractive
 
 # Paper over occasional mirror flakiness, and keep the install lean.

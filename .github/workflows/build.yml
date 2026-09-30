@@ -129,6 +129,15 @@ jobs:
       image: ubuntu:22.04
       options: --user root
 
+    # A container job's default shell is sh, which on Ubuntu is dash. Several
+    # steps here start with `set -o pipefail`, and dash rejects it with
+    # "Illegal option" - the step then dies in zero seconds with no output at
+    # all, because the file it was redirecting into never gets created. Naming
+    # bash explicitly is what makes those steps run.
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -235,6 +244,10 @@ jobs:
     container:
       image: ubuntu:22.04
       options: --user root
+
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
