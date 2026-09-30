@@ -121,6 +121,36 @@ def run(argv, env=None):
     return result.returncode, result.stdout, result.stderr
 
 
+# Where the gdk-pixbuf and GTK helper programs may live.
+#
+# Not on PATH, which is the trap: on Debian and Ubuntu the multiarch tool
+# directory is /usr/lib/<triplet>/gdk-pixbuf-2.0/, and
+# `gdk-pixbuf-query-loaders` is installed there rather than in /usr/bin - the
+# package carries its man page but not a PATH entry. Calling it by name fails
+# with FileNotFoundError, which is how this was found.
+TOOL_DIRECTORIES = (
+    "/usr/bin",
+    "/usr/local/bin",
+    "/usr/libexec",
+    "/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0",
+    "/usr/lib/gdk-pixbuf-2.0",
+    "/usr/lib/x86_64-linux-gnu/libgtk-3-0",
+    "/usr/lib/gtk-3.0",
+)
+
+
+def find_tool(name):
+    """Return the path to a helper program, or None."""
+    found = shutil.which(name)
+    if found:
+        return found
+    for directory in TOOL_DIRECTORIES:
+        candidate = os.path.join(directory, name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
 def log(message):
     print("[collect] %s" % message, flush=True)
 
@@ -322,34 +352,52 @@ def populate(depends, report):
     # rather than copied, because the copy in the container points at the
     # container's paths; the launcher rewrites it again at startup so the
     # bundle stays relocatable.
+    #
+    # A missing cache is not fatal. The launcher also sets
+    # GDK_PIXBUF_MODULEDIR, which gdk-pixbuf falls back to scanning, so the
+    # cost of doing without it is a slower start rather than a broken one -
+    # which is why a missing tool warns and continues instead of raising.
     loaders_dir = os.path.join(depends, "lib/gdk-pixbuf-2.0/2.10.0/loaders")
     if os.path.isdir(loaders_dir):
-        code, out, err = run(["gdk-pixbuf-query-loaders"] + sorted(
-            os.path.join(loaders_dir, name)
-            for name in os.listdir(loaders_dir)
-            if name.endswith(".so")
-        ))
-        if code != 0:
-            warn("gdk-pixbuf-query-loaders failed: %s" % err.strip())
+        tool = find_tool("gdk-pixbuf-query-loaders")
+        if tool is None:
+            warn(
+                "gdk-pixbuf-query-loaders was not found in %s; the bundle will "
+                "have no loaders.cache and gdk-pixbuf will scan its module "
+                "directory at startup instead"
+                % ", ".join(TOOL_DIRECTORIES)
+            )
         else:
-            cache = os.path.join(depends, "lib/gdk-pixbuf-2.0/2.10.0/loaders.cache")
-            with open(cache, "w", encoding="utf-8", newline="\n") as handle:
-                handle.write(out)
-            log("wrote %d bytes of gdk-pixbuf loaders.cache" % len(out))
+            code, out, err = run([tool] + sorted(
+                os.path.join(loaders_dir, name)
+                for name in os.listdir(loaders_dir)
+                if name.endswith(".so")
+            ))
+            if code != 0:
+                warn("gdk-pixbuf-query-loaders failed: %s" % err.strip())
+            elif out.strip():
+                cache = os.path.join(depends, "lib/gdk-pixbuf-2.0/2.10.0/loaders.cache")
+                with open(cache, "w", encoding="utf-8", newline="\n") as handle:
+                    handle.write(out)
+                log("wrote %d bytes of gdk-pixbuf loaders.cache from %s" % (len(out), tool))
 
     # Same idea for GTK's input modules.
     immodules_dir = os.path.join(depends, "lib/gtk-3.0/3.0.0/immodules")
     if os.path.isdir(immodules_dir):
-        code, out, _err = run(["gtk-query-immodules-3.0"] + sorted(
-            os.path.join(immodules_dir, name)
-            for name in os.listdir(immodules_dir)
-            if name.endswith(".so")
-        ))
-        if code == 0 and out.strip():
-            cache = os.path.join(depends, "lib/gtk-3.0/3.0.0/immodules.cache")
-            with open(cache, "w", encoding="utf-8", newline="\n") as handle:
-                handle.write(out)
-            log("wrote GTK immodules.cache")
+        tool = find_tool("gtk-query-immodules-3.0")
+        if tool is None:
+            warn("gtk-query-immodules-3.0 was not found; input modules will not be cached")
+        else:
+            code, out, _err = run([tool] + sorted(
+                os.path.join(immodules_dir, name)
+                for name in os.listdir(immodules_dir)
+                if name.endswith(".so")
+            ))
+            if code == 0 and out.strip():
+                cache = os.path.join(depends, "lib/gtk-3.0/3.0.0/immodules.cache")
+                with open(cache, "w", encoding="utf-8", newline="\n") as handle:
+                    handle.write(out)
+                log("wrote GTK immodules.cache from %s" % tool)
 
 
 # --------------------------------------------------------------------------- #

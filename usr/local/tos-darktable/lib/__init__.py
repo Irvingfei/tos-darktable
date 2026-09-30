@@ -6,7 +6,7 @@ reported by the /health endpoint so an operator can tell which build is
 actually running without querying dpkg.
 """
 
-__version__ = "1.0.13"
+__version__ = "1.0.14"
 
 APP_ID = "tos-darktable"
 SERVICE_NAME = "tos-darktable.service"
