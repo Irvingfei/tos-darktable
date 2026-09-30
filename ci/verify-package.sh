@@ -34,6 +34,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Everything the launcher and its children wrote.
+#
+# Each child logs to its own file - the X server's diagnostics are in
+# xvfb.log, not in the launcher's - so a startup failure that only printed the
+# launcher's log hid the one line that said why. Dumping all of them costs
+# nothing when things work and saves a whole build cycle when they do not.
+dump_logs() {
+    echo "--- launcher log ---"
+    cat /tmp/launcher.log 2>/dev/null || echo "(absent)"
+    for name in xvfb x11vnc darktable; do
+        echo "--- logs/${name}.log ---"
+        cat "$ROOT/logs/$name.log" 2>/dev/null || echo "(absent)"
+        echo
+    done
+}
+
 # --------------------------------------------------------------------------- #
 log "unpacking $DEB"
 dpkg-deb -x "$DEB" "$EXTRACT"
@@ -114,7 +130,7 @@ ready=0
 for _ in $(seq 1 60); do
     if ! kill -0 "$LAUNCHER_PID" 2>/dev/null; then
         fail "the launcher exited during startup"
-        cat /tmp/launcher.log
+        dump_logs
         exit 1
     fi
     if curl -fsS -m 3 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
@@ -126,7 +142,7 @@ done
 
 if [ "$ready" != "1" ]; then
     fail "the health endpoint did not answer within 60 seconds"
-    cat /tmp/launcher.log
+    dump_logs
     exit 1
 fi
 echo "  /health answered"
@@ -136,14 +152,7 @@ log "running the end-to-end verification"
 
 if ! python3 "$HERE/verify_ws.py" --host 127.0.0.1 --port "$PORT" --password "$PASSWORD"; then
     fail "end-to-end verification failed"
-    echo "--- launcher log ---"
-    cat /tmp/launcher.log
-    for log in darktable xvfb x11vnc; do
-        if [ -f "$ROOT/logs/$log.log" ]; then
-            echo "--- $log.log (last 40 lines) ---"
-            tail -40 "$ROOT/logs/$log.log"
-        fi
-    done
+    dump_logs
     exit 1
 fi
 
