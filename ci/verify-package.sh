@@ -117,29 +117,13 @@ fi
 rm -f "$missing_report"
 echo "  $count file(s) checked, no unresolved library"
 
-# --------------------------------------------------------------------------- #
-log "probing the X server directly"
-
-# Run the bundled X server once, on its own, with its output captured.
-#
-# The launcher starts it as a child and sends the child's output to a log file,
-# so when it exits immediately the reason is one step removed and, as it turned
-# out, written to a path this script was not looking at. Starting it here means
-# the refusal is in the output either way.
-PROBE_DISPLAY=77
-"$ROOT/depends/bin/Xvfb" ":$PROBE_DISPLAY" -screen 0 320x240x24 -nolisten tcp \
-    > /tmp/xvfb-probe.log 2>&1 &
-PROBE_PID=$!
-sleep 3
-if kill -0 "$PROBE_PID" 2>/dev/null; then
-    echo "  Xvfb started and is running"
-    kill -TERM "$PROBE_PID" 2>/dev/null || true
-    wait "$PROBE_PID" 2>/dev/null || true
-else
-    echo "  Xvfb exited immediately. Its output:"
-    sed 's/^/    /' /tmp/xvfb-probe.log
-fi
-echo "  /tmp/.X11-unix: $(ls -ld /tmp/.X11-unix 2>&1)"
+# What the bundled keymap data actually looks like. The X server compiles its
+# keymap from these files at startup and refuses to start when it cannot, so an
+# incomplete copy is fatal - and a file listing is the only honest way to tell
+# whether the copy is incomplete or the path is wrong.
+XKB_DIR="$ROOT/depends/share/X11/xkb"
+echo "  xkb tree: $(find "$XKB_DIR" -maxdepth 1 -type d 2>/dev/null | wc -l) top-level entries, $(find "$XKB_DIR" -type f 2>/dev/null | wc -l) files"
+echo "  keycodes/evdev: $(ls -la "$XKB_DIR/keycodes/evdev" 2>&1)"
 
 # --------------------------------------------------------------------------- #
 log "running the launcher's own check"
@@ -173,6 +157,29 @@ log "running the preparation step"
     fail "the preparation step failed"
     exit 1
 }
+
+# --------------------------------------------------------------------------- #
+log "probing the X server directly"
+
+# After preparation, not before: the preparation step is what supplies the
+# keymap compiler the X server needs, so probing earlier measured a state no
+# device is ever in. The probe uses the same -xkbdir the launcher does, so a
+# failure here is the launcher's failure with its output in front of us rather
+# than one step removed and written to another file.
+PROBE_DISPLAY=77
+"$ROOT/depends/bin/Xvfb" ":$PROBE_DISPLAY" -screen 0 320x240x24 -nolisten tcp \
+    -xkbdir "$XKB_DIR" > /tmp/xvfb-probe.log 2>&1 &
+PROBE_PID=$!
+sleep 3
+if kill -0 "$PROBE_PID" 2>/dev/null; then
+    echo "  Xvfb started and is running"
+    kill -TERM "$PROBE_PID" 2>/dev/null || true
+    wait "$PROBE_PID" 2>/dev/null || true
+else
+    echo "  Xvfb exited immediately. Its output:"
+    sed 's/^/    /' /tmp/xvfb-probe.log
+fi
+echo "  /tmp/.X11-unix: $(ls -ld /tmp/.X11-unix 2>&1)"
 
 # --------------------------------------------------------------------------- #
 log "starting the application"
