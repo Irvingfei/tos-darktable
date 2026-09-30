@@ -1,0 +1,251 @@
+name: build
+
+# Three jobs, deliberately ordered by cost:
+#
+#   metadata  seconds   validates the package contract, runs the launcher's
+#                       self-test, and builds a metadata-only package. Catches
+#                       the great majority of submission problems without
+#                       compiling anything.
+#   build     30-55 min compiles darktable and collects the runtime closure.
+#   verify    minutes   installs the package into a bare ubuntu:22.04 and runs
+#                       it end to end. This is the only check that proves the
+#                       bundled runtime is complete.
+#
+# The release job runs on tags and publishes the package plus its SHA-256,
+# which the TOS developer platform requires for every binary artifact.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Override the version in config.ini (e.g. 1.0.1)"
+        required: false
+        type: string
+      skip_build:
+        description: "Only run the fast metadata job"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  APP_ID: tos-darktable
+  DT_VERSION: "5.6.1"
+  # The commit release-5.6.1 points at. Pinned so that a re-tag upstream turns
+  # into a build failure naming the cause, instead of a package that quietly
+  # ships different code than the release notes describe.
+  DARKTABLE_SHA: "03179f8e080aa9cedebfe14b098b7ba88940a292"
+
+jobs:
+  # ------------------------------------------------------------------------- #
+  metadata:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Version literals agree with VERSION
+        run: python3 tools/bump_version.py --check
+
+      - name: Launcher self-test
+        run: python3 tools/selftest.py -v
+
+      - name: Pre-submission validation
+        run: python3 tools/validate.py
+
+      - name: Assemble a metadata-only package
+        # No --stage: this exercises the metadata, lifecycle scripts and webui
+        # packing without waiting for darktable to build.
+        run: python3 tools/build.py --platform x86_64
+
+      - name: Inspect the package structure
+        run: python3 tools/inspect_deb.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: metadata-package
+          path: |
+            dist/*.deb
+            dist/*.sha256
+          if-no-files-found: error
+
+  # ------------------------------------------------------------------------- #
+  build:
+    needs: metadata
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_build != true }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+
+    # A bare ubuntu:22.04 rather than the runner image. The runner ships dozens
+    # of -dev packages, and every optional find_package() that succeeds there
+    # adds a library to the bundle; building in a container with an explicit
+    # package list is what makes the collected closure reproducible.
+    container:
+      image: ubuntu:22.04
+      options: --user root
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+
+      - name: Install build dependencies
+        run: |
+          set -eux
+          export DEBIAN_FRONTEND=noninteractive
+          printf 'Acquire::Retries "10";\n' > /etc/apt/apt.conf.d/80retry
+          printf 'APT::Install-Recommends "false";\n' > /etc/apt/apt.conf.d/80recommends
+          apt-get update
+
+          # Required. The build fails outright without any of these.
+          apt-get install -y --no-install-recommends \
+            build-essential gcc-11 g++-11 cmake ninja-build pkg-config \
+            git ca-certificates gettext libxml2-utils \
+            python3 python3-minimal dpkg-dev binutils file \
+            bzip2 xz-utils ccache patchelf \
+            libglib2.0-dev libgtk-3-dev libxml2-dev libpotrace-dev \
+            liblensfun-dev libsqlite3-dev libpango1.0-dev librsvg2-dev \
+            libpng-dev libjpeg-dev libtiff-dev liblcms2-dev \
+            libjson-glib-dev libcurl4-openssl-dev libexiv2-dev \
+            libimath-dev zlib1g-dev libgdk-pixbuf-2.0-dev
+
+          # Optional formats. Installed one at a time and tolerated when
+          # absent: darktable's find_package calls for these are guarded by
+          # if(X_FOUND), so a missing one costs that format and nothing else.
+          # A single failing name in a combined install would abort the whole
+          # step, which is exactly how a build breaks for no real reason.
+          for package in libjxl-dev libavif-dev libheif-dev libwebp-dev \
+                         libopenjp2-7-dev libgraphicsmagick1-dev; do
+            apt-get install -y --no-install-recommends "$package" \
+              || echo "optional dependency $package is unavailable; skipping"
+          done
+
+          # Sources for the runtime payload. These are copied into the bundle
+          # by ci/collect_deps.py; the package never depends on them.
+          apt-get install -y --no-install-recommends \
+            xvfb x11vnc xauth x11-xkb-utils xkb-data fonts-dejavu-core \
+            libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /root/.ccache
+            ${{ github.workspace }}/build
+          key: dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_SHA }}-${{ hashFiles('app/ci/build-darktable.sh') }}
+          restore-keys: |
+            dt-${{ env.DT_VERSION }}-${{ env.DARKTABLE_SHA }}-
+
+      - name: Build darktable
+        env:
+          CCACHE_DIR: /root/.ccache
+          SRC_DIR: ${{ github.workspace }}/src
+          BUILD_DIR: ${{ github.workspace }}/build
+          STAGE: ${{ github.workspace }}/stage
+          DARKTABLE_VERSION: ${{ env.DT_VERSION }}
+          DARKTABLE_SHA: ${{ env.DARKTABLE_SHA }}
+        run: app/ci/build-darktable.sh
+
+      - name: Collect the runtime dependency bundle
+        run: |
+          python3 app/ci/collect_deps.py \
+            --stage "${{ github.workspace }}/stage" \
+            --report "${{ github.workspace }}/bundle-report.json"
+
+      - name: Show bundle size
+        run: |
+          du -sh "${{ github.workspace }}/stage/usr/local/tos-darktable/"* || true
+
+      - name: Assemble the package
+        run: |
+          python3 app/tools/build.py --platform x86_64 \
+            --stage "${{ github.workspace }}/stage"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: |
+            app/dist/*.deb
+            app/dist/*.sha256
+            bundle-report.json
+          if-no-files-found: error
+
+  # ------------------------------------------------------------------------- #
+  verify:
+    needs: build
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_build != true }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    container:
+      image: ubuntu:22.04
+      options: --user root
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: artifacts
+
+      - name: Install only what a bare device would have
+        # Deliberately not the build dependencies. If the bundle is missing
+        # something, this is where it must fail.
+        run: |
+          set -eux
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            dpkg binutils curl procps python3 ca-certificates
+
+      - name: Install and run the package
+        run: |
+          set -eux
+          ls -la artifacts
+          chmod +x app/ci/verify-package.sh app/ci/verify_ws.py
+          app/ci/verify-package.sh "$(ls artifacts/*.deb | head -1)"
+
+      - name: Verify the declared checksum
+        run: |
+          set -eux
+          cd artifacts
+          sha256sum -c *.sha256
+
+  # ------------------------------------------------------------------------- #
+  release:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            tos-darktable_x86_64.deb
+            tos-darktable_x86_64.deb.sha256
+          generate_release_notes: true
+          body: |
+            darktable ${{ env.DT_VERSION }} packaged for TOS 7.
+
+            Install from the TOS App Center, or download the assets below.
+            The `.sha256` file is required by the developer platform and can be
+            checked with `sha256sum -c tos-darktable_x86_64.deb.sha256`.
+
+            Read the access password after installing with:
+            `sudo cat /usr/local/tos-darktable/data/access.txt`

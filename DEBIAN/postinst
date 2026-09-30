@@ -1,0 +1,181 @@
+#!/bin/bash
+# postinst - runs after the package files have been unpacked.
+set -e
+
+APPID="tos-darktable"
+ROOT="/usr/local/$APPID"
+SERVICE="$APPID.service"
+SHARE="darktable-photos"
+VERSION=1.0.1
+case "$1" in
+    configure)
+        # 1. Re-assert ownership and permissions on the package payload.
+        #
+        #    $ROOT is a symlink into the volume on a TOS installation
+        #    (/Volume<N>/@apps/<appid>/), and find does not follow a symlink
+        #    given as its starting point - it would silently walk nothing and
+        #    report success. Resolve it before anything walks the tree.
+        REAL_ROOT="$(readlink -f "$ROOT" 2>/dev/null || echo "$ROOT")"
+
+        chown -R "$APPID:$APPID" "$REAL_ROOT" 2>/dev/null || true
+        # The package may be produced on a platform that cannot record POSIX
+        # modes, so the installed tree is normalised here instead of trusting
+        # the archive: directories 0755, data files 0644, no group/world write.
+        chmod -R u=rwX,go=rX "$REAL_ROOT" 2>/dev/null || true
+        chmod 0755 "$ROOT/bin/darktable-server" 2>/dev/null || true
+
+        # 2. Runtime directories, all inside the application directory.
+        #
+        #    data/run must be 0700 or glib refuses to use it as
+        #    XDG_RUNTIME_DIR. data/tmp is darktable's TMPDIR, kept here so that
+        #    nothing is written to the shared system /tmp.
+        mkdir -p "$ROOT/data/home" "$ROOT/data/tmp" "$ROOT/data/run" \
+                 "$ROOT/data/xauth" "$ROOT/data/fontconfig-cache" \
+                 "$ROOT/logs" "$ROOT/webui"
+        chown -R "$APPID:$APPID" "$ROOT/data" "$ROOT/logs" 2>/dev/null || true
+        chmod 0700 "$ROOT/data" "$ROOT/logs" "$ROOT/data/run" "$ROOT/data/xauth" 2>/dev/null || true
+        chmod 0750 "$ROOT/data/tmp" "$ROOT/data/home" 2>/dev/null || true
+
+        # 3. Remove stale bytecode caches.
+        #
+        #    The build pins every source file's mtime to the epoch so the
+        #    package is reproducible, and the interpreter validates a .pyc
+        #    against the source's mtime and size. An edit that keeps the byte
+        #    length - a version literal is the usual case - therefore leaves
+        #    the cached bytecode looking valid, and the service silently keeps
+        #    executing the previous release's code with nothing in any log to
+        #    show for it. dpkg never installs these caches; they are written
+        #    by whoever ran the server by hand during a diagnostic, so an
+        #    upgrade walks straight past them. Clearing them here makes the
+        #    interpreter compile from the sources that were just unpacked.
+        find "$REAL_ROOT" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+
+        # 4. Access password.
+        #
+        #    Generated once and never regenerated, so that an upgrade does not
+        #    lock the operator out of a desktop they were already using. Read
+        #    with a capability check rather than by luck: 0600 owned by the
+        #    application account, so the administrator reads it as root and
+        #    nobody else can.
+        SECRET="$ROOT/data/access.txt"
+        if [ ! -s "$SECRET" ]; then
+            PASSWORD="$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | cut -c1-20)"
+            umask 077
+            {
+                echo "$PASSWORD"
+            } > "$SECRET"
+            chown "$APPID:$APPID" "$SECRET" 2>/dev/null || true
+            chmod 0600 "$SECRET"
+            echo "darktable access password generated."
+        else
+            echo "darktable access password already present; left unchanged."
+        fi
+        echo "  Read it with:  sudo cat $ROOT/data/access.txt"
+
+        # 5. Unpack the browser frontend.
+        #
+        #    Explicitly into webui/ rather than in place: the launcher serves
+        #    this tree, and a fixed subdirectory keeps the archive's contents
+        #    from mixing with bin/, lib/ and the metadata files.
+        #
+        #    The App Center does this itself during installation. Doing it here
+        #    as well is what makes a plain `dpkg -i` produce a working
+        #    installation, which is how the package is tested on a device
+        #    before submission. It is idempotent, so the two cannot disagree.
+        if [ -f "$ROOT/webui.bz2" ]; then
+            if tar -xjf "$ROOT/webui.bz2" -C "$ROOT/webui" 2>/dev/null; then
+                chown -R "$APPID:$APPID" "$ROOT/webui" 2>/dev/null || true
+            else
+                echo "WARNING: webui.bz2 could not be unpacked; the web interface will not load." >&2
+            fi
+        fi
+
+        # 5b. Publish the frontend at the path the platform expects to serve it
+        #     from. The App Center creates this link too; doing it here is again
+        #     for the plain-dpkg case, and is skipped once the link is correct.
+        #
+        #     Deliberately NOT created here: the nginx route file under
+        #     /etc/nginx/AppAccessControl/. A package that rewrites the web
+        #     server's configuration is a risk this application is not willing
+        #     to take during an install or an upgrade, and the platform
+        #     generates that file from the nginx/ directory shipped in this
+        #     package.
+        WWW_LINK="/usr/www/$APPID"
+        if [ -d /usr/www ]; then
+            CURRENT=""
+            [ -L "$WWW_LINK" ] && CURRENT="$(readlink "$WWW_LINK" 2>/dev/null || true)"
+            if [ "$CURRENT" != "$ROOT/webui" ]; then
+                [ -e "$WWW_LINK" ] && [ ! -L "$WWW_LINK" ] && mv "$WWW_LINK" "$WWW_LINK.bak" 2>/dev/null || true
+                ln -sfn "$ROOT/webui" "$WWW_LINK" 2>/dev/null || true
+            fi
+        fi
+
+        # 6. Photograph share.
+        #
+        #    Photographs are ordinary files in a normal TOS shared folder, so
+        #    the operator sees them in the File Manager and over SMB without
+        #    the application implementing any of that.
+        #
+        #    ter_share_add is the platform's own tool for creating such a
+        #    folder and the only sanctioned way to obtain one the application
+        #    account can write to without the operator granting anything.
+        #    Failure is not fatal: the application still starts and simply
+        #    reports that its photograph folder is unavailable, which is far
+        #    better than failing the installation of the whole package over
+        #    one directory.
+        VOLUME="$(ls -d /Volume* 2>/dev/null | head -1)"
+        SHARE_ROOT=""
+        [ -n "$VOLUME" ] && SHARE_ROOT="$VOLUME/$SHARE"
+
+        READY=0
+        [ -d "$SHARE_ROOT" ] && READY=1
+        if [ "$READY" = "0" ] && [ -n "$VOLUME" ] && command -v ter_share_add >/dev/null 2>&1; then
+            ter_share_add -device "$(basename "$VOLUME")" -name "$SHARE" -owner "$APPID" >/dev/null 2>&1 || true
+            [ -d "$SHARE_ROOT" ] && READY=1
+        fi
+
+        if [ "$READY" = "1" ]; then
+            echo "photograph folder: $SHARE_ROOT"
+        else
+            echo "WARNING: the photograph shared folder '$SHARE' could not be created."
+            echo "         The application will start and report it as unavailable."
+        fi
+
+        # 7. Install and register the systemd unit.
+        if [ -f "$ROOT/init.d/$SERVICE" ]; then
+            cp -f "$ROOT/init.d/$SERVICE" "/etc/systemd/system/$SERVICE"
+            chmod 0644 "/etc/systemd/system/$SERVICE"
+            systemctl daemon-reload 2>/dev/null || true
+            systemctl enable "$SERVICE" 2>/dev/null || true
+        fi
+
+        # 8. Bring the service up.
+        #
+        #    Data lives in $ROOT/data and is intentionally preserved, so an
+        #    upgrade restarts the running instance rather than leaving it to
+        #    notice the new files. `try-restart` acts only on a unit that is
+        #    already running - and reports success when it does nothing, which
+        #    is why the `start` beside it is needed as well: an upgrade
+        #    performed while the service happened to be stopped would
+        #    otherwise leave it stopped, and the framework reads a stopped
+        #    service as a broken application. The end state is asserted
+        #    instead of assumed.
+        if [ -n "$2" ]; then
+            echo "Upgrading $APPID from version $2 to $VERSION"
+            systemctl try-restart "$SERVICE" 2>/dev/null || true
+        fi
+        if ! systemctl is-active --quiet "$SERVICE" 2>/dev/null; then
+            systemctl start "$SERVICE" 2>/dev/null || true
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

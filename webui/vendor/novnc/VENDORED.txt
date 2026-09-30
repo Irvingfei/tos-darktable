@@ -1,0 +1,10 @@
+﻿noVNC v1.7.0
+https://github.com/novnc/noVNC/releases/tag/v1.7.0
+Downloaded 2026-09-30.
+
+Vendored unmodified: only core/ and vendor/ are copied, and neither is edited.
+noVNC is licensed under the Mozilla Public License 2.0; see LICENSE.txt in this
+directory. It is distributed here unchanged, which is all the MPL requires.
+
+This file was added by the packager to record the provenance; it is not part of
+noVNC.

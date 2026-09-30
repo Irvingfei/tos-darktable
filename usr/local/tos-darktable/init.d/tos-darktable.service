@@ -1,0 +1,51 @@
+[Unit]
+Description=darktable for TOS
+Documentation=https://www.darktable.org/usermanual/
+After=network.target
+
+# A short start-limit window turns a transient failure into a permanently
+# failed unit, which the TOS app framework reports as "the app disabled
+# itself". Keep a generous window so recoverable errors can retry.
+StartLimitBurst=10
+StartLimitIntervalSec=120
+
+[Service]
+Type=simple
+User=tos-darktable
+Group=tos-darktable
+WorkingDirectory=/usr/local/tos-darktable
+ExecStart=/usr/local/tos-darktable/bin/darktable-server
+EnvironmentFile=-/usr/local/tos-darktable/tos-darktable.env
+TimeoutStartSec=60
+TimeoutStopSec=10
+
+# KillMode=control-group is the Type=simple default and is what guarantees no
+# Xvfb or x11vnc survives `systemctl stop`; stated explicitly because the
+# launcher also does its own orphan sweep for the SIGKILL case.
+
+# Hardening is deliberately limited to directives that do NOT require systemd
+# to build a mount namespace. On TOS, /var and several standard paths are
+# symlinks into /tmp; namespace based options (PrivateTmp, ProtectSystem,
+# ProtectHome, ReadWritePaths) make systemd fail while preparing
+# /run/systemd/unit-root and the unit then exits with status=226/NAMESPACE
+# before the program is reached. This is why the service does not carry the
+# namespace directives that chapter 12.7 of the TOS 7 guide lists.
+#
+# PrivateTmp would additionally break X11 outright: the display socket must be
+# reachable at the shared /tmp/.X11-unix path, which is a fixed X11 protocol
+# location with no runtime override.
+NoNewPrivileges=true
+
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+LimitNPROC=512
+
+# Matches the resource declaration in the submission's README. The platform
+# applies the multimedia band (200% CPU / 2048 MB) to this application class;
+# stating it here keeps the unit and the declaration auditable together.
+MemoryMax=2048M
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target

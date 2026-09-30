@@ -1,0 +1,17 @@
+Package: tos-darktable
+Version: 1.0.1
+Architecture: amd64
+Section: graphics
+Priority: optional
+Maintainer: Joffy <Irvingfei@users.noreply.github.com>
+Depends: libc6 (>= 2.35), libstdc++6, libgcc-s1, python3 (>= 3.10), systemd
+Description: darktable - photography workflow and raw developer for TOS
+ darktable is an open source photography workflow application and raw
+ developer. This package runs the full darktable desktop, streamed to a
+ browser tab, and keeps photographs in a NAS shared folder so they stay
+ visible in the File Manager and over SMB.
+ .
+ The application bundles its own GTK, X and VNC runtime under
+ /usr/local/tos-darktable, because TOS 7 ships no desktop libraries and
+ darktable requires a newer OpenEXR than the platform root filesystem
+ provides.

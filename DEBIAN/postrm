@@ -1,0 +1,66 @@
+#!/bin/bash
+# postrm - runs after the package files have been removed.
+#
+# The rule this script follows is the one in chapter 12.9.7 of the TOS 7 guide:
+# postrm deletes only package-owned paths that this application created. Two
+# things it therefore must not touch:
+#
+#   * the photograph shared folder. Those are the user's own files and the
+#     platform offers no tool to put a deleted share back. Uninstalling an
+#     editor is not consent to destroy a photograph library.
+#
+#   * the application account. The platform creates it, so removing it is the
+#     platform's business; a well-meaning userdel here would delete something
+#     this package never created.
+set -e
+
+APPID="tos-darktable"
+ROOT="/usr/local/$APPID"
+SERVICE="$APPID.service"
+
+systemctl daemon-reload 2>/dev/null || true
+
+if [ "$1" = "purge" ]; then
+    # Resolve the symlink before walking: on TOS $ROOT points into
+    # /Volume<N>/@apps/<appid>/ and find will not follow a symlink that is its
+    # own starting point.
+    REAL_ROOT="$(readlink -f "$ROOT" 2>/dev/null || echo "$ROOT")"
+
+    rm -f "/etc/systemd/system/$SERVICE" 2>/dev/null || true
+
+    # The published copy of the frontend. Only removed when the link still
+    # points at this application's own webui directory: an operator may have
+    # repointed it, and deleting the target of a link we do not own would
+    # destroy something else.
+    WWW_LINK="/usr/www/$APPID"
+    if [ -L "$WWW_LINK" ]; then
+        CURRENT="$(readlink "$WWW_LINK" 2>/dev/null || true)"
+        case "$CURRENT" in
+            "$ROOT/webui"|"$REAL_ROOT/webui") rm -f "$WWW_LINK" 2>/dev/null || true ;;
+        esac
+    fi
+
+    # The launcher removes its own X display socket on a clean shutdown, but a
+    # purge that followed a crash would leave one behind. Only the display
+    # numbers this application can have chosen are removed, and only sockets
+    # belonging to our own account, so another application's display is never
+    # touched.
+    if [ -d /tmp/.X11-unix ]; then
+        for sock in /tmp/.X11-unix/X*; do
+            [ -S "$sock" ] || continue
+            owner="$(stat -c '%U' "$sock" 2>/dev/null || echo '')"
+            if [ "$owner" = "$APPID" ]; then
+                rm -f "$sock" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    # Runtime data and logs are ours. access.txt lives under data/ and is
+    # regenerated on the next install.
+    rm -rf "$REAL_ROOT/data" "$REAL_ROOT/logs" 2>/dev/null || true
+    rm -rf "$ROOT/data" "$ROOT/logs" 2>/dev/null || true
+
+    systemctl daemon-reload 2>/dev/null || true
+fi
+
+exit 0

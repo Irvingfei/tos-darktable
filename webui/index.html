@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="referrer" content="no-referrer">
+    <title>darktable</title>
+    <!-- The ?v= parameter is rewritten by tools/bump_version.py from VERSION. -->
+    <link rel="stylesheet" href="./style.css?v=1.0.1">
+</head>
+<body>
+
+<div id="stage">
+    <div id="screen"></div>
+</div>
+
+<div id="toolbar">
+    <button id="fit" type="button" aria-pressed="true" title="Scale the desktop to fit this window">Fit</button>
+    <button id="fullscreen" type="button" title="Use the whole screen">Full screen</button>
+    <span class="toolbar-separator"></span>
+    <button id="restart" type="button" title="Close and reopen the editing session">Restart session</button>
+</div>
+
+<div id="overlay">
+    <div class="panel">
+        <div class="spinner"></div>
+        <h1 id="overlay-title">Connecting</h1>
+        <p id="overlay-message">Opening the desktop&hellip;</p>
+        <p class="hint" id="overlay-hint"></p>
+        <div class="actions" id="overlay-actions" hidden>
+            <button class="primary" id="action-retry" type="button">Try again</button>
+            <button id="action-reload" type="button">Reload the page</button>
+        </div>
+    </div>
+</div>
+
+<script type="module" src="./app.js?v=1.0.1"></script>
+
+</body>
+</html>

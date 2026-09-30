@@ -1,0 +1,21 @@
+# Build products. Never committed.
+build/
+dist/
+stage/
+src/
+__pycache__/
+*.pyc
+*.pyo
+
+# The runtime bundle is produced by ci/collect_deps.py, not authored.
+usr/local/tos-darktable/app/
+usr/local/tos-darktable/depends/
+
+# Unpacked by postinst at install time.
+usr/local/tos-darktable/webui/
+usr/local/tos-darktable/webui.bz2
+
+# Reference material kept outside the repository, but guarded in case it is
+# ever moved back in.
+inspect/
+ref/

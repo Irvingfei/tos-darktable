@@ -1,0 +1,35 @@
+#!/bin/bash
+# preinst - runs before the package files are unpacked.
+#
+# Deliberately does NOT create the application user. Chapter 10.3 of the TOS 7
+# guide is explicit that the platform creates the dedicated non-root account
+# during installation and that lifecycle scripts MUST NOT do it themselves;
+# this application only names that account in config.ini ("user") and matches
+# it in the systemd unit's User= directive.
+set -e
+
+APPID="tos-darktable"
+ROOT="/usr/local/$APPID"
+LISTEN_PORT=9312
+
+# Report a port collision before the package is unpacked, so the operator sees
+# the reason at install time rather than as a service that starts and cannot
+# bind. This is a warning, not a failure: on an upgrade our own service may
+# legitimately still be listening, and refusing to install over that would
+# make upgrades impossible.
+if command -v ss >/dev/null 2>&1; then
+    if ss -tlnH "sport = :$LISTEN_PORT" 2>/dev/null | grep -q .; then
+        echo "WARNING: TCP port $LISTEN_PORT is already in use."
+        echo "         If it is not a previous instance of $APPID, change"
+        echo "         DTOS_LISTEN_PORT in /usr/local/$APPID/$APPID.env"
+        echo "         and the TCP port declared in this package's README."
+    fi
+fi
+
+# The payload directories are owned by the application account, which the
+# platform creates asynchronously around installation. Create them here with
+# permissive modes only so that dpkg can unpack into them; postinst reasserts
+# the real ownership and the 0700 modes once the account is guaranteed to exist.
+mkdir -p "$ROOT/data" "$ROOT/logs" 2>/dev/null || true
+
+exit 0

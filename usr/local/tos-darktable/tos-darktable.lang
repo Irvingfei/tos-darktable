@@ -1,0 +1,97 @@
+[zh-cn]
+name = "darktable"
+auth = "Joffy"
+descript = "开源摄影工作流与 RAW 显影软件。在浏览器里打开完整的 darktable 桌面界面，用虚拟灯箱整理照片、用暗房做非破坏性调整，支持 500 多种相机机型的 RAW 格式和 60 多个处理模块。照片以普通文件保存在 NAS 共享文件夹中，可在文件管理器里直接查看、通过 SMB 访问，并由卷快照保留历史版本。"
+release_note = "1. 首次发布，基于 darktable 5.6.1。2. 浏览器远程桌面，无需在电脑上安装软件。3. 完整暗房界面与虚拟灯箱。4. 照片存放在 NAS 共享文件夹，SMB 与文件管理器可见。5. 多核与 OpenCL 加速。6. 相机联机拍摄与地图视图已按 NAS 场景关闭。"
+important = "首次访问需要口令，请查看 /usr/local/tos-darktable/data/access.txt。远程桌面通过网络传输画面，在局域网内体验最佳。"
+
+[zh-hk]
+name = "darktable"
+auth = "Joffy"
+descript = "開源攝影工作流程與 RAW 顯影軟件。在瀏覽器裡開啟完整的 darktable 桌面介面，用虛擬燈箱整理相片、用暗房做非破壞性調整，支援 500 多種相機型號的 RAW 格式和 60 多個處理模組。相片以普通檔案保存在 NAS 共享資料夾中，可在檔案管理員裡直接檢視、透過 SMB 存取，並由卷快照保留歷史版本。"
+release_note = "1. 首次發布，基於 darktable 5.6.1。2. 瀏覽器遠端桌面，無需在電腦上安裝軟件。3. 完整暗房介面與虛擬燈箱。4. 相片存放在 NAS 共享資料夾，SMB 與檔案管理員可見。5. 多核心與 OpenCL 加速。6. 相機連線拍攝與地圖檢視已按 NAS 場景關閉。"
+important = "首次存取需要密碼，請查看 /usr/local/tos-darktable/data/access.txt。遠端桌面透過網絡傳輸畫面，在區域網絡內體驗最佳。"
+
+[en-us]
+name = "darktable"
+auth = "Joffy"
+descript = "An open source photography workflow application and raw developer. Open the full darktable desktop in your browser: organise photographs on the virtual lighttable and develop them non-destructively in the darkroom, with RAW support for over 500 camera models and more than 60 processing modules. Your photographs stay as ordinary files in a NAS shared folder, visible in the File Manager, reachable over SMB, and protected by volume snapshots."
+release_note = "1. First release, based on darktable 5.6.1. 2. Browser-based remote desktop, nothing to install on your computer. 3. Full darkroom and virtual lighttable. 4. Photographs live in a NAS shared folder, visible over SMB and in the File Manager. 5. Multi-core and OpenCL acceleration. 6. Tethered shooting and the map view are disabled for the NAS use case."
+important = "The first visit asks for a password; see /usr/local/tos-darktable/data/access.txt. The desktop is streamed over the network and works best on a local area network."
+
+[fr-fr]
+name = "darktable"
+auth = "Joffy"
+descript = "An open source photography workflow application and raw developer. Open the full darktable desktop in your browser: organise photographs on the virtual lighttable and develop them non-destructively in the darkroom, with RAW support for over 500 camera models and more than 60 processing modules. Your photographs stay as ordinary files in a NAS shared folder, visible in the File Manager, reachable over SMB, and protected by volume snapshots."
+release_note = "1. First release, based on darktable 5.6.1. 2. Browser-based remote desktop, nothing to install on your computer. 3. Full darkroom and virtual lighttable. 4. Photographs live in a NAS shared folder. 5. Multi-core and OpenCL acceleration."
+important = "The first visit asks for a password; see /usr/local/tos-darktable/data/access.txt. The desktop is streamed over the network and works best on a local area network."
+
+[de-de]
+name = "darktable"
+auth = "Joffy"
+descript = "An open source photography workflow application and raw developer. Open the full darktable desktop in your browser: organise photographs on the virtual lighttable and develop them non-destructively in the darkroom, with RAW support for over 500 camera models and more than 60 processing modules. Your photographs stay as ordinary files in a NAS shared folder, visible in the File Manager, reachable over SMB, and protected by volume snapshots."
+release_note = "1. First release, based on darktable 5.6.1. 2. Browser-based remote desktop, nothing to install on your computer. 3. Full darkroom and virtual lighttable. 4. Photographs live in a NAS shared folder. 5. Multi-core and OpenCL acceleration."
+important = "The first visit asks for a password; see /usr/local/tos-darktable/data/access.txt. The desktop is streamed over the network and works best on a local area network."
+
+[it-it]
+name = "darktable"
+auth = "Joffy"
+descript = "An open source photography workflow application and raw developer. Open the full darktable desktop in your browser: organise photographs on the virtual lighttable and develop them non-destructively in the darkroom, with RAW support for over 500 camera models and more than 60 processing modules. Your photographs stay as ordinary files in a NAS shared folder, visible in the File Manager, reachable over SMB, and protected by volume snapshots."
+release_note = "1. First release, based on darktable 5.6.1. 2. Browser-based remote desktop, nothing to install on your computer. 3. Full darkroom and virtual lighttable. 4. Photographs live in a NAS shared folder. 5. Multi-core and OpenCL acceleration."
+important = "The first visit asks for a password; see /usr/local/tos-darktable/data/access.txt. The desktop is streamed over the network and works best on a local area network."
+
+[es-es]
+name = "darktable"
+auth = "Joffy"
+descript = "An open source photography workflow application and raw developer. Open the full darktable desktop in your browser: organise photographs on the virtual lighttable and develop them non-destructively in the darkroom, with RAW support for over 500 camera models and more than 60 processing modules. Your photographs stay as ordinary files in a NAS shared folder, visible in the File Manager, reachable over SMB, and protected by volume snapshots."
+release_note = "1. First release, based on darktable 5.6.1. 2. Browser-based remote desktop, nothing to install on your computer. 3. Full darkroom and virtual lighttable. 4. Photographs live in a NAS shared folder. 5. Multi-core and OpenCL acceleration."
+important = "The first visit asks for a password; see /usr/local/tos-darktable/data/access.txt. The desktop is streamed over the network and works best on a local area network."
+
+[hu-hu]
+name = "darktable"
+auth = "Joffy"
+descript = "An open source photography workflow application and raw developer. Open the full darktable desktop in your browser: organise photographs on the virtual lighttable and develop them non-destructively in the darkroom, with RAW support for over 500 camera models and more than 60 processing modules. Your photographs stay as ordinary files in a NAS shared folder, visible in the File Manager, reachable over SMB, and protected by volume snapshots."
+release_note = "1. First release, based on darktable 5.6.1. 2. Browser-based remote desktop, nothing to install on your computer. 3. Full darkroom and virtual lighttable. 4. Photographs live in a NAS shared folder. 5. Multi-core and OpenCL acceleration."
+important = "The first visit asks for a password; see /usr/local/tos-darktable/data/access.txt. The desktop is streamed over the network and works best on a local area network."
+
+[ja-jp]
+name = "darktable"
+auth = "Joffy"
+descript = "An open source photography workflow application and raw developer. Open the full darktable desktop in your browser: organise photographs on the virtual lighttable and develop them non-destructively in the darkroom, with RAW support for over 500 camera models and more than 60 processing modules. Your photographs stay as ordinary files in a NAS shared folder, visible in the File Manager, reachable over SMB, and protected by volume snapshots."
+release_note = "1. First release, based on darktable 5.6.1. 2. Browser-based remote desktop, nothing to install on your computer. 3. Full darkroom and virtual lighttable. 4. Photographs live in a NAS shared folder. 5. Multi-core and OpenCL acceleration."
+important = "The first visit asks for a password; see /usr/local/tos-darktable/data/access.txt. The desktop is streamed over the network and works best on a local area network."
+
+[ko-kr]
+name = "darktable"
+auth = "Joffy"
+descript = "An open source photography workflow application and raw developer. Open the full darktable desktop in your browser: organise photographs on the virtual lighttable and develop them non-destructively in the darkroom, with RAW support for over 500 camera models and more than 60 processing modules. Your photographs stay as ordinary files in a NAS shared folder, visible in the File Manager, reachable over SMB, and protected by volume snapshots."
+release_note = "1. First release, based on darktable 5.6.1. 2. Browser-based remote desktop, nothing to install on your computer. 3. Full darkroom and virtual lighttable. 4. Photographs live in a NAS shared folder. 5. Multi-core and OpenCL acceleration."
+important = "The first visit asks for a password; see /usr/local/tos-darktable/data/access.txt. The desktop is streamed over the network and works best on a local area network."
+
+[pl-pl]
+name = "darktable"
+auth = "Joffy"
+descript = "An open source photography workflow application and raw developer. Open the full darktable desktop in your browser: organise photographs on the virtual lighttable and develop them non-destructively in the darkroom, with RAW support for over 500 camera models and more than 60 processing modules. Your photographs stay as ordinary files in a NAS shared folder, visible in the File Manager, reachable over SMB, and protected by volume snapshots."
+release_note = "1. First release, based on darktable 5.6.1. 2. Browser-based remote desktop, nothing to install on your computer. 3. Full darkroom and virtual lighttable. 4. Photographs live in a NAS shared folder. 5. Multi-core and OpenCL acceleration."
+important = "The first visit asks for a password; see /usr/local/tos-darktable/data/access.txt. The desktop is streamed over the network and works best on a local area network."
+
+[ru-ru]
+name = "darktable"
+auth = "Joffy"
+descript = "An open source photography workflow application and raw developer. Open the full darktable desktop in your browser: organise photographs on the virtual lighttable and develop them non-destructively in the darkroom, with RAW support for over 500 camera models and more than 60 processing modules. Your photographs stay as ordinary files in a NAS shared folder, visible in the File Manager, reachable over SMB, and protected by volume snapshots."
+release_note = "1. First release, based on darktable 5.6.1. 2. Browser-based remote desktop, nothing to install on your computer. 3. Full darkroom and virtual lighttable. 4. Photographs live in a NAS shared folder. 5. Multi-core and OpenCL acceleration."
+important = "The first visit asks for a password; see /usr/local/tos-darktable/data/access.txt. The desktop is streamed over the network and works best on a local area network."
+
+[tr-tr]
+name = "darktable"
+auth = "Joffy"
+descript = "An open source photography workflow application and raw developer. Open the full darktable desktop in your browser: organise photographs on the virtual lighttable and develop them non-destructively in the darkroom, with RAW support for over 500 camera models and more than 60 processing modules. Your photographs stay as ordinary files in a NAS shared folder, visible in the File Manager, reachable over SMB, and protected by volume snapshots."
+release_note = "1. First release, based on darktable 5.6.1. 2. Browser-based remote desktop, nothing to install on your computer. 3. Full darkroom and virtual lighttable. 4. Photographs live in a NAS shared folder. 5. Multi-core and OpenCL acceleration."
+important = "The first visit asks for a password; see /usr/local/tos-darktable/data/access.txt. The desktop is streamed over the network and works best on a local area network."
+
+[pt-pt]
+name = "darktable"
+auth = "Joffy"
+descript = "An open source photography workflow application and raw developer. Open the full darktable desktop in your browser: organise photographs on the virtual lighttable and develop them non-destructively in the darkroom, with RAW support for over 500 camera models and more than 60 processing modules. Your photographs stay as ordinary files in a NAS shared folder, visible in the File Manager, reachable over SMB, and protected by volume snapshots."
+release_note = "1. First release, based on darktable 5.6.1. 2. Browser-based remote desktop, nothing to install on your computer. 3. Full darkroom and virtual lighttable. 4. Photographs live in a NAS shared folder. 5. Multi-core and OpenCL acceleration."
+important = "The first visit asks for a password; see /usr/local/tos-darktable/data/access.txt. The desktop is streamed over the network and works best on a local area network."

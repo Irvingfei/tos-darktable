@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""darktable for TOS - launcher entry point.
+
+Started by systemd as ``tos-darktable.service``. Also runs by hand, which is
+the only way to debug it on a device where systemd owns the normal start path:
+
+    /usr/local/tos-darktable/bin/darktable-server --check
+    /usr/local/tos-darktable/bin/darktable-server
+
+``--check`` verifies the runtime bundle and exits without starting anything.
+It answers "is this package installable" in one command, which is what a build
+pipeline and a support conversation both need.
+"""
+
+import argparse
+import os
+import sys
+
+APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if APP_ROOT not in sys.path:
+    sys.path.insert(0, APP_ROOT)
+
+from lib import __version__  # noqa: E402
+from lib import bundle  # noqa: E402
+from lib import config as config_module  # noqa: E402
+
+
+def check():
+    """Report on the runtime bundle without starting the session."""
+    config = config_module.config
+    print("darktable for TOS %s" % __version__)
+    print("root      : %s" % config.root)
+    print("listen    : %s:%d" % (config.listen_host, config.listen_port))
+
+    missing = bundle.missing_pieces(config)
+    if missing:
+        for path in missing:
+            print("MISSING   : %s" % path)
+        print("\nRESULT: the runtime bundle is incomplete.")
+        print("Rebuild the package with the dependency bundle (ci/collect_deps.py).")
+        return 1
+
+    print("darktable : %s" % config.darktable_binary)
+    print("X server  : %s" % config.xvfb_binary)
+    print("VNC server: %s" % config.x11vnc_binary)
+    print("webui     : %s" % config.webui_dir)
+    print("share     : %s" % (config.share_root or "(not found)"))
+
+    # A warning that has to be here, because the failure it describes is
+    # invisible from this command. The platform grants access to a shared
+    # folder through an ACL on the object itself, and root bypasses ACLs - so
+    # run as root this check cannot tell a folder the service account can use
+    # from one it cannot even enter, and would report the second as fine. The
+    # only honest answer comes from the service process, which runs as the
+    # application account: GET /api/status on the running application, or
+    #   su -s /bin/sh tos-darktable -c 'ls <share>'
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        print("            (run as root: access to a shared folder cannot be judged")
+        print("             from here, because root bypasses the platform's ACL)")
+
+    password = config.read_password()
+    print("password  : %s" % ("set" if password else "NOT SET (postinst did not run?)"))
+
+    if not os.path.isdir(config.depends_lib):
+        print("MISSING   : %s" % config.depends_lib)
+        print("\nRESULT: the runtime bundle is incomplete.")
+        return 1
+
+    print("\nRESULT: the runtime bundle is present.")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="darktable-server",
+        description="Launcher for darktable for TOS.",
+    )
+    parser.add_argument("--version", action="version", version=__version__)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="verify the runtime bundle and exit without starting the session",
+    )
+    args = parser.parse_args(argv)
+
+    if args.check:
+        return check()
+
+    from lib import server
+
+    return server.main()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

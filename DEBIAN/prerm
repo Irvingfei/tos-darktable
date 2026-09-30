@@ -1,0 +1,21 @@
+#!/bin/bash
+# prerm - runs before the package files are removed.
+set -e
+
+APPID="tos-darktable"
+SERVICE="$APPID.service"
+
+# Stop the unit first so systemd tears down the whole cgroup (the launcher,
+# the X server, the VNC server and darktable itself) through the normal path.
+systemctl stop "$SERVICE" 2>/dev/null || true
+
+# Belt to the cgroup's braces. If the launcher was started by hand - during a
+# diagnostic, or by an operator who did not go through systemd - it is not in
+# any unit's cgroup and `systemctl stop` cannot reach it. Killing the
+# application account's processes is the only way to be sure nothing survives
+# to hold the display socket or the listening port across a reinstall.
+pkill -u "$APPID" 2>/dev/null || true
+
+systemctl disable "$SERVICE" 2>/dev/null || true
+
+exit 0
