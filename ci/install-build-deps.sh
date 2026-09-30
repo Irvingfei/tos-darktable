@@ -46,9 +46,13 @@ apt-get update
 #
 # intltool provides intltool-merge, which CMakeLists.txt looks for by name and
 # fails on when absent.
+#
+# xsltproc is required too: CMakeLists.txt:353 aborts with "No XSLT interpreter
+# found" without it. saxon-xslt would do as well, but xsltproc is one package.
 apt-get install -y --no-install-recommends \
     build-essential gcc-12 g++-12 cmake ninja-build pkg-config \
-    git ca-certificates gettext intltool libxml2-utils \
+    git ca-certificates gettext intltool libxml2-utils xsltproc \
+    desktop-file-utils \
     python3 python3-minimal dpkg-dev binutils file \
     bzip2 xz-utils ccache patchelf \
     libglib2.0-dev libgtk-3-dev libxml2-dev libpotrace-dev \
@@ -88,9 +92,12 @@ apt-get install -y --no-install-recommends \
 #
 # Installed individually and tolerated, so a renamed package degrades rather
 # than failing the build; the echo lands in the captured apt log either way.
-for package in liblensfun-data-v1 librsvg2-common; do
+# Tools darktable treats as optional but whose absence it warns about, and
+# which upstream's own CI image carries. Installed the same tolerant way: a
+# missing one costs a warning, not a build.
+for package in liblensfun-data-v1 librsvg2-common python3-jsonschema po4a; do
     apt-get install -y --no-install-recommends "$package" \
-        || echo "runtime payload $package is unavailable; that feature will be missing"
+        || echo "optional runtime payload $package is unavailable; that feature will be missing"
 done
 
 echo "build dependencies installed"
