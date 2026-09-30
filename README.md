@@ -148,6 +148,8 @@ never written.
 | `logs/xvfb.log`, `logs/x11vnc.log` | X and VNC server output | Text | On start | Truncated per start | Persistent |
 | `webui/` | The browser interface, unpacked from `webui.bz2` | HTML, JS, CSS | Once, by `postinst` | Under 1 MB | Replaced on upgrade |
 | `/tmp/.X11-unix/X<n>` | The X display socket | Unix socket | On start | One socket | Removed on stop and on purge |
+| `/var/lib/xkb/` | Where the X server writes the keymap it compiles at startup. Owned by the application account, because the X server runs as that account. Recreated on every start, since `/var` on TOS is a symlink into `/tmp` and the directory would otherwise be missing after a reboot. | Directory | On start | One compiled keymap | Left in place; removed with the directory's contents by the system's own `/tmp` cleanup |
+| `/usr/bin/xkbcomp` | A symlink to the compiler shipped in `depends/bin/`, created only when nothing already occupies that path. See the note below. | Symlink | On start, if absent | One link | Removed on purge, and only while it still points at this application's copy |
 | `etc/fonts/fonts.conf` | Generated font configuration | XML | On start | Under 1 KB | Rewritten on every start |
 
 **On `/tmp`:** the application writes no temporary files to the shared system
@@ -157,6 +159,24 @@ bundled X server creates itself. That location is not configurable at runtime,
 and `PrivateTmp=true` is deliberately not used — see the note in
 `init.d/tos-darktable.service`. Everything else, including darktable's own
 scratch space, is redirected into `data/tmp/`.
+
+**On the two paths outside the application directory:** `xkbcomp` is the only
+file this package places outside `/usr/local/tos-darktable`, and it is placed
+there out of necessity rather than convenience. The X server locates its
+keymap compiler through a path compiled into the binary — the format string
+`"%s%sxkbcomp"` with the prefix `/usr/bin` was read out of the Xvfb binary
+itself — and that path cannot be redirected from the command line. TOS ships
+no `xkbcomp`: `x11-xkb-utils` is not installed, and while its dpkg database
+records `xkb-data` as installed, the files under `/usr/share/X11/xkb` are not
+present in the image. Without a compiler the X server refuses to start at all,
+with `XKB: Failed to compile keymap`, which would prevent any application that
+brings its own X server from running.
+
+The link is created by the service's own preparation step, which runs as root
+before each start, and only when `/usr/bin/xkbcomp` does not already exist —
+so a system that provides its own keeps it. It is a single symlink, it replaces
+nothing, and `postrm` removes it on purge while it still points at this
+application's copy.
 
 ## Configuration
 

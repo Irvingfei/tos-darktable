@@ -229,6 +229,79 @@ def ensure_share(config, uid, gid):
     return False
 
 
+# The X server looks for its keymap compiler at a path baked into the binary,
+# and writes the compiled keymap to a fixed output directory. Neither is
+# configurable: `-xkbdir` moves where the keymap *sources* are read from and
+# nothing else. Both facts were read out of the Xvfb binary itself rather than
+# assumed:
+#
+#     '"%s%sxkbcomp" -w %d %s -xkm "%s" ... "%s%s.xkm"'
+#     '/usr/bin'          the prefix the compiler path is built from
+#     '/var/lib/xkb/'     the compiled keymap output directory
+#
+# TOS ships neither. Its dpkg database records xkb-data as installed while the
+# files under /usr/share/X11/xkb are absent from the image, and x11-xkb-utils -
+# which is what provides xkbcomp - is not installed at all. So the X server
+# cannot compile a keymap and refuses to start:
+#
+#     XKB: Failed to compile keymap
+#     Fatal server error: Failed to activate virtual core keyboard: 2
+#
+# That is a device-level blocker, not a packaging one, and it would hit any
+# application that brings its own X server.
+#
+# The two things it needs are therefore supplied here, by the root-privileged
+# preparation step, and both are declared in the package README as required.
+# The symlink is created only when nothing is already at that path, so a system
+# that does provide xkbcomp keeps its own.
+XKBCOMP_PATH = "/usr/bin/xkbcomp"
+XKB_OUTPUT_DIR = "/var/lib/xkb"
+
+
+def ensure_xkb_support(config, uid, gid):
+    """Give the bundled X server the two system paths it hard-codes."""
+    # The compiled keymap directory. The X server runs as the application
+    # account - the launcher drops privileges nowhere, but the unit starts it
+    # as that user - so this has to be writable by that account, not by root.
+    #
+    # It is recreated on every start because on TOS /var is a symlink into
+    # /tmp: the directory does not survive a reboot, and would otherwise be
+    # missing on the first start after one.
+    try:
+        os.makedirs(XKB_OUTPUT_DIR, exist_ok=True)
+        os.chown(XKB_OUTPUT_DIR, uid, gid)
+        os.chmod(XKB_OUTPUT_DIR, 0o755)
+        log.info("%s is ready, owned by %s", XKB_OUTPUT_DIR, config.app_user)
+    except OSError as error:
+        log.warning("cannot prepare %s: %s", XKB_OUTPUT_DIR, error)
+
+    bundled = os.path.join(config.depends_bin, "xkbcomp")
+    if not os.path.isfile(bundled):
+        log.warning(
+            "%s is missing from the bundle, so the X server cannot compile a "
+            "keymap and will not start",
+            bundled,
+        )
+        return
+
+    if os.path.exists(XKBCOMP_PATH) or os.path.islink(XKBCOMP_PATH):
+        log.info("%s already exists; leaving it alone", XKBCOMP_PATH)
+        return
+
+    try:
+        os.symlink(bundled, XKBCOMP_PATH)
+        log.info("linked %s -> %s for the X server", XKBCOMP_PATH, bundled)
+    except OSError as error:
+        # Not fatal here, but the X server will fail on its next start, so say
+        # so plainly rather than letting it surface as a display error.
+        log.error(
+            "cannot create %s (%s). The X server will not start without it; "
+            "the root filesystem may be read-only.",
+            XKBCOMP_PATH,
+            error,
+        )
+
+
 def run(config):
     """Entry point. Returns a process exit status; always 0 unless hopeless."""
     if not is_root():
@@ -251,6 +324,7 @@ def run(config):
 
     fix_ownership(config, uid, gid)
     ensure_share(config, uid, gid)
+    ensure_xkb_support(config, uid, gid)
 
     # The service cannot run without somewhere to write. Reported here rather
     # than left to the traceback the launcher would otherwise produce.

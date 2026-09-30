@@ -137,6 +137,35 @@ log "running the launcher's own check"
 "$ROOT/bin/darktable-server" --check
 
 # --------------------------------------------------------------------------- #
+log "creating the application account, as the platform does"
+
+# The platform creates this account during installation, and it gives it the
+# shared group allusers as its primary group without creating a group named
+# after the application. Reproducing that here is not decoration: the first
+# submission on a real device failed with status=216/GROUP precisely because a
+# same-named group was assumed to exist, and the preparation step below does
+# nothing at all until the account is there.
+groupadd -f allusers 2>/dev/null || true
+if ! id -u "$APPID" >/dev/null 2>&1; then
+    useradd --no-create-home --shell /usr/sbin/nologin --gid allusers "$APPID"
+    echo "  created $APPID (group allusers, no same-named group)"
+else
+    echo "  $APPID already exists"
+fi
+id "$APPID"
+
+# --------------------------------------------------------------------------- #
+log "running the preparation step"
+
+# systemd runs this through ExecStartPre=+ before every start; doing it here
+# means the verification covers the same path a device does, including the
+# repairs that postinst could not make.
+"$ROOT/bin/darktable-server" --prepare || {
+    fail "the preparation step failed"
+    exit 1
+}
+
+# --------------------------------------------------------------------------- #
 log "starting the application"
 
 mkdir -p "$ROOT/data" "$ROOT/webui"

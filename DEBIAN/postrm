@@ -28,6 +28,21 @@ if [ "$1" = "purge" ]; then
 
     rm -f "/etc/systemd/system/$SERVICE" 2>/dev/null || true
 
+    # The keymap compiler link, and only while it still points at this
+    # application's own copy. The preparation step creates it because the X
+    # server looks for xkbcomp at a path baked into its binary and TOS ships no
+    # xkbcomp at all; removing it here keeps a purge from leaving a dangling
+    # link behind, and the readlink check keeps a purge from deleting a link
+    # that was not ours.
+    if [ -L /usr/bin/xkbcomp ]; then
+        CURRENT="$(readlink /usr/bin/xkbcomp 2>/dev/null || true)"
+        case "$CURRENT" in
+            "$ROOT/depends/bin/xkbcomp"|"$REAL_ROOT/depends/bin/xkbcomp")
+                rm -f /usr/bin/xkbcomp 2>/dev/null || true
+                ;;
+        esac
+    fi
+
     # The published copy of the frontend. Only removed when the link still
     # points at this application's own webui directory: an operator may have
     # repointed it, and deleting the target of a link we do not own would
