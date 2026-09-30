@@ -243,12 +243,12 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            upstream = wsbridge.connect_upstream(config.vnc_socket)
+            upstream = wsbridge.connect_upstream(config.vnc_port)
         except OSError as error:
             # The desktop transport is not up. Reported as 503 so the frontend
             # can say "the session is restarting" rather than "connection
             # failed", which are different problems for the operator.
-            log.warning("cannot reach the VNC socket: %s", error)
+            log.warning("cannot reach the VNC server on 127.0.0.1:%d: %s", config.vnc_port, error)
             self._send_error_text(503, "The desktop is not running.")
             return
 

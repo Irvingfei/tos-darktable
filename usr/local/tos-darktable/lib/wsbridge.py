@@ -265,12 +265,12 @@ def bridge(client_sock, client_reader, upstream_sock, stop_event):
         worker.join(timeout=2.0)
 
 
-def connect_upstream(socket_path, timeout=5.0):
-    """Connect to the VNC server's unix socket."""
-    upstream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+def connect_upstream(port, host="127.0.0.1", timeout=5.0):
+    """Connect to the VNC server on its loopback port."""
+    upstream = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     upstream.settimeout(timeout)
     try:
-        upstream.connect(socket_path)
+        upstream.connect((host, port))
     except OSError:
         upstream.close()
         raise

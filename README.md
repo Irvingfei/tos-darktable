@@ -108,7 +108,8 @@ to be tidy.
 
 | Permission | Justification |
 | --- | --- |
-| Network: TCP port 9312 | The only network listener. Serves the web interface and the desktop stream. |
+| Network: TCP port 9312 | The only listener reachable from the network. Serves the web interface and the desktop stream. |
+| Network: TCP port 9313, loopback only | The VNC transport, bound to 127.0.0.1 so the network cannot reach it. |
 | File System: `/usr/local/tos-darktable/` | The application's own directory: its code, its bundled runtime, and its runtime data under `data/` and `logs/`. |
 | User: `tos-darktable` | A dedicated non-root account, created by the platform. The service runs as this user and never as root. |
 | Shared Folder: `darktable-photos` | Where photographs are kept, created with the platform's own `ter_share_add`. The user's files, not the application's. |
@@ -119,10 +120,16 @@ to be tidy.
 | Port | Protocol | Purpose |
 | --- | --- | --- |
 | 9312 | TCP | Web interface and the VNC desktop stream over WebSocket. Listens on all interfaces; every route except `/health` requires the access password. |
+| 9313 | TCP | The VNC transport, bound to **127.0.0.1 only**. Not reachable from the network; it exists so the HTTP bridge can hand framebuffer data to the browser. |
 
-No other port is opened. The VNC server publishes a unix socket inside the
-application's own `data/run/` directory instead of a TCP port, and the virtual
-X server is started with `-nolisten tcp`.
+No port other than 9312 is reachable from the network. The VNC listener is
+started with `-localhost`, so it accepts connections only from this machine, and
+the virtual X server is started with `-nolisten tcp`.
+
+An earlier design put the VNC transport on a unix socket, which would have been
+tidier. The `x11vnc` that Ubuntu 22.04 ships rejects `-rfbunixpath` and
+`-rfbunixmode` as unrecognised options and exits, so a loopback port is used
+instead; the reachable surface is the same.
 
 ## Runtime file manifest
 
@@ -140,7 +147,7 @@ never written.
 | `data/tmp/` | darktable's scratch space (`TMPDIR`) | Binary | On demand | Swept on every start | Temporary |
 | `data/run/launcher.lock` | Prevents a second instance from starting | Lock file | On start | Fixed | Removed on stop |
 | `data/run/session.json` | The process table, so an orphaned run can be cleaned up | JSON | On start and on restart | Under 1 KB | Removed on stop |
-| `data/run/x11vnc.sock` | The VNC transport | Unix socket | On start | One socket | Removed before each start and on stop |
+| `data/run/x11vnc.sock` | Not used. The VNC transport is a loopback TCP port, not a socket, because the x11vnc Ubuntu 22.04 ships rejects `-rfbunixpath`. See the ports table. | — | — | — | — |
 | `data/xauth/Xauthority` | X authentication cookie | Binary, mode 0600 | On start | Under 1 KB | Rewritten on every start |
 | `data/fontconfig-cache/` | Font cache | Binary | On first text render | A few MB | Regenerable — safe to delete |
 | `logs/launcher.log` | Launcher log | Text | On start | Rotated at 2 MB, three kept | Persistent, rotated |

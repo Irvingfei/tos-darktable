@@ -150,7 +150,13 @@ class Config(object):
         # Files under data/run
         self.session_file = os.path.join(self.run_dir, "session.json")
         self.lock_file = os.path.join(self.run_dir, "launcher.lock")
-        self.vnc_socket = os.path.join(self.run_dir, "x11vnc.sock")
+
+        # The VNC transport. A loopback-only TCP port rather than a unix
+        # socket, because the x11vnc that Ubuntu 22.04 ships rejects
+        # -rfbunixpath and -rfbunixmode as unrecognised options - measured, not
+        # assumed. -localhost keeps the listener on 127.0.0.1, so the LAN still
+        # cannot reach it and the only exposed port remains the HTTP one.
+        self.vnc_port = _int_setting("DTOS_VNC_PORT", 9313)
 
     def _read_app_user(self):
         """Return the ``user`` field of the packaged config.ini, or None.

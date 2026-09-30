@@ -5,13 +5,16 @@ Neither is available as a library on a NAS, so both are bundled binaries under
 
 Two decisions worth knowing about:
 
-**No TCP listener for VNC.** x11vnc is given ``-rfbunixpath``, so it publishes a
-unix socket inside the application's own run directory instead of opening a
-port. The only network listener in the whole application is then the HTTP port
-the platform already knows about, which keeps the permission declaration to a
-single port and means the VNC transport is unreachable by anything that cannot
-already read the application account's files. Authentication happens once, at
-the HTTP layer.
+**VNC listens on loopback only.** x11vnc is given ``-localhost``, so it binds
+127.0.0.1 and nothing on the network can reach the desktop transport directly.
+The only port the application exposes on all interfaces is the HTTP one, which
+keeps the permission declaration to a single port. Authentication happens once,
+at the HTTP layer.
+
+An earlier design published a unix socket instead, which is tidier in principle
+and does not work: the x11vnc that Ubuntu 22.04 ships rejects ``-rfbunixpath``
+and ``-rfbunixmode`` as unrecognised options and exits. ``-localhost`` obtains
+the same property with an option that exists.
 
 **``-noreset`` on the X server.** Without it, Xvfb resets the display when its
 last client disconnects. darktable is the only real client, so a crash would
@@ -202,15 +205,8 @@ class DisplaySession(object):
     # -- VNC server -------------------------------------------------------
 
     def start_vnc_server(self):
-        """Start x11vnc on a unix socket inside the application directory."""
-        socket_path = self.config.vnc_socket
-        # A socket file left by a previous run would make x11vnc bind a name
-        # that nothing can connect to, and the failure would appear as a
-        # browser that never paints.
-        try:
-            os.unlink(socket_path)
-        except OSError:
-            pass
+        """Start x11vnc, listening on loopback only."""
+        port = self.config.vnc_port
 
         argv = [
             self.config.x11vnc_binary,
@@ -218,12 +214,20 @@ class DisplaySession(object):
             ":%d" % self.display,
             "-auth",
             self.config.xauth_file,
-            "-rfbunixpath",
-            socket_path,
-            "-rfbunixmode",
-            "0600",
+            "-rfbport",
+            str(port),
+            # Loopback only.
+            #
+            # The VNC server publishes a unix socket in an earlier design, so
+            # that nothing but the HTTP bridge could reach it. The x11vnc that
+            # Ubuntu 22.04 ships does not accept -rfbunixpath or -rfbunixmode -
+            # it rejects them as unrecognised options and exits - so the same
+            # property is obtained with -localhost instead, which binds the
+            # listener to 127.0.0.1. The LAN still cannot reach it, and the
+            # only port exposed on all interfaces remains the HTTP one.
+            "-localhost",
             # No VNC password: authentication happens once at the HTTP layer,
-            # and this socket is reachable only by the application account.
+            # and this listener is reachable only from this machine.
             "-nopw",
             # Keep serving after a browser tab closes, and allow the operator
             # to open the desktop from more than one tab.
@@ -234,9 +238,6 @@ class DisplaySession(object):
             # screen. Polling is slower on paper and correct in practice.
             "-noxdamage",
             "-repeat",
-            # Belt and braces: even if a build ignored -rfbunixpath, nothing
-            # would be reachable off the loopback interface.
-            "-localhost",
             "-quiet",
         ]
 
@@ -249,9 +250,9 @@ class DisplaySession(object):
         if not child.start():
             return False
 
-        if not processes.wait_until(lambda: os.path.exists(socket_path), timeout=5.0):
+        if not processes.wait_until(lambda: self._vnc_accepting(port), timeout=8.0):
             status = child.poll()
-            log.error("x11vnc did not create %s within 5s (status %s)", socket_path, status)
+            log.error("x11vnc is not accepting connections on %d within 8s (status %s)", port, status)
             child.stop()
             return False
 
@@ -260,8 +261,28 @@ class DisplaySession(object):
             return False
 
         self.x11vnc = child
-        log.info("VNC server ready on %s", socket_path)
+        log.info("VNC server ready on 127.0.0.1:%d", port)
         return True
+
+    @staticmethod
+    def _vnc_accepting(port):
+        """True when something is listening on the loopback port.
+
+        Polled by connecting rather than by watching a PID, because a socket
+        file appearing is not the same as a server accepting - and with a port
+        there is no file to watch at all.
+        """
+        import socket as socket_module
+
+        probe = socket_module.socket(socket_module.AF_INET, socket_module.SOCK_STREAM)
+        probe.settimeout(0.3)
+        try:
+            probe.connect(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+        finally:
+            probe.close()
 
     # -- lifecycle --------------------------------------------------------
 
