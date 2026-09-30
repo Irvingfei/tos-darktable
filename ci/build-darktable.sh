@@ -31,6 +31,20 @@ BUILD_DIR="${BUILD_DIR:-$PWD/build}"
 WORK="${WORK:-$PWD/work}"
 JOBS="${JOBS:-$(nproc)}"
 
+# STAGE is made absolute before it is used, and that matters.
+#
+# DESTDIR is applied by the generated install rules, and a *relative* DESTDIR
+# has an ambiguous base - the message cmake prints while installing names the
+# path as computed, which is not necessarily where the file is written. That
+# produced an install whose own log said it had written
+# stage/usr/local/tos-darktable/app/bin/darktable while the next command in
+# this same script could not find it. An absolute DESTDIR removes the question.
+#
+# PREFIX is deliberately left alone: it is a path seen at runtime on the
+# device, not on this machine.
+mkdir -p "$STAGE"
+STAGE="$(cd "$STAGE" && pwd)"
+
 log() { printf '\n=== %s\n' "$*"; }
 
 # --------------------------------------------------------------------------- #
@@ -182,14 +196,25 @@ DESTDIR="$STAGE" cmake --build "$BUILD_DIR" --target install -- -j"$JOBS" \
 
 log "installed into $STAGE$PREFIX"
 
-# A quick sanity check that the two binaries exist where the launcher expects
-# them. A build that produced nothing usable should fail here rather than
-# three steps later inside collect_deps.py.
+# List what actually landed, unconditionally. The check below failed once on a
+# path that the install log said it had just written, and there was nothing in
+# the log to say which of "absent" or "not executable" it was - the listing is
+# cheaper than another forty-minute round trip to find out.
+echo "--- contents of $STAGE$PREFIX/bin ---"
+ls -la "$STAGE$PREFIX/bin" 2>&1 || true
+echo "--- pwd: $(pwd) ---"
+
 for binary in darktable darktable-cli; do
-    if [ ! -x "$STAGE$PREFIX/bin/$binary" ]; then
-        echo "error: $binary was not installed into $STAGE$PREFIX/bin" >&2
+    target="$STAGE$PREFIX/bin/$binary"
+    if [ ! -e "$target" ]; then
+        echo "error: $target does not exist." >&2
+        echo "       cwd is $(pwd); STAGE='$STAGE' PREFIX='$PREFIX'" >&2
+        exit 1
+    fi
+    if [ ! -x "$target" ]; then
+        echo "error: $target exists but is not executable." >&2
+        ls -la "$target" >&2 || true
         exit 1
     fi
 done
-
-log "done"
+log "darktable and darktable-cli are installed and executable"
